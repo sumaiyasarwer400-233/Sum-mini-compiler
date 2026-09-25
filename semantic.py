@@ -1,586 +1,264 @@
-from dataclasses import dataclass
+from symbol_table import SymbolTable
 
 
-class SemanticError(Exception):
-    pass
-
-
-@dataclass
-class Symbol:
-    name: str
-    type_name: str
-    kind: str
-    node: object = None
-
-
-class Scope:
-    def __init__(self, parent=None):
-        self.parent = parent
-        self.symbols = {}
-
-    def define(self, symbol):
-        if symbol.name in self.symbols:
-            raise SemanticError(
-                f"Duplicate declaration: {symbol.name}"
-            )
-        self.symbols[symbol.name] = symbol
-
-    def lookup(self, name):
-        if name in self.symbols:
-            return self.symbols[name]
-
-        if self.parent:
-            return self.parent.lookup(name)
-
-        return None
-
-
-class Analyzer:
-
+class SemanticAnalyzer:
     def __init__(self):
-        self.global_scope = Scope()
-        self.current_scope = self.global_scope
-        self.structs = {}
-        self.functions = {}
+        self.symbol_table = SymbolTable()
+        self.errors = []
         self.current_function = None
         self.loop_depth = 0
 
+    def error(self, message):
+        self.errors.append(message)
+
     def analyze(self, program):
+        for statement in program["statements"]:
+            self.check_statement(statement)
 
-        # First collect all struct declarations
-        for declaration in program.declarations:
-            if declaration.__class__.__name__ == "StructDecl":
-                self.visit_struct(declaration)
+    def check_statement(self, statement):
+        node_type = statement["type"]
 
-        # Collect function headers
-        for declaration in program.declarations:
-            if declaration.__class__.__name__ == "FunctionDecl":
-                self.visit_function_header(declaration)
+        if node_type == "Function":
+            self.check_function(statement)
 
-        # Analyze function bodies
-        for declaration in program.declarations:
-            if declaration.__class__.__name__ == "FunctionDecl":
-                self.visit_function(declaration)
+        elif node_type == "If":
+            self.check_expression(statement["condition"])
 
-        return True
+            self.symbol_table.enter_scope()
+            self.check_statement(statement["then"])
+            self.symbol_table.exit_scope()
 
-    # ---------------- STRUCT ----------------
+            if statement["else"] is not None:
+                self.symbol_table.enter_scope()
+                self.check_statement(statement["else"])
+                self.symbol_table.exit_scope()
 
-    def visit_struct(self, node):
+        elif node_type == "While":
+            self.check_expression(statement["condition"])
 
-        if node.name in self.structs:
-            raise SemanticError(
-                f"Duplicate struct: {node.name}"
-            )
+            self.loop_depth += 1
 
-        fields = {}
+            self.symbol_table.enter_scope()
+            self.check_statement(statement["body"])
+            self.symbol_table.exit_scope()
 
-        for field in node.fields:
+            self.loop_depth -= 1
 
-            if field.name in fields:
-                raise SemanticError(
-                    f"Duplicate field '{field.name}' "
-                    f"in struct '{node.name}'"
+        elif node_type == "For":
+            self.symbol_table.enter_scope()
+
+            if statement["initialization"]:
+                self.check_expression(
+                    statement["initialization"]
                 )
 
-            self.check_type(field.type_name)
-            fields[field.name] = field.type_name
+            if statement["condition"]:
+                condition_type = self.check_expression(
+                    statement["condition"]
+                )
 
-        self.structs[node.name] = fields
+                if condition_type not in ("bool", "int"):
+                    self.error(
+                        "For loop condition must be boolean"
+                    )
 
-    # ---------------- FUNCTION ----------------
+            if statement["update"]:
+                self.check_expression(
+                    statement["update"]
+                )
 
-    def visit_function_header(self, node):
+            self.loop_depth += 1
+            self.check_statement(statement["body"])
+            self.loop_depth -= 1
 
-        if node.name in self.functions:
-            raise SemanticError(
-                f"Duplicate function: {node.name}"
-            )
+            self.symbol_table.exit_scope()
 
-        return_type = node.return_type or "void"
-
-        if return_type != "void":
-            self.check_type(return_type)
-
-        self.functions[node.name] = node
-
-    def visit_function(self, node):
-
-        old_scope = self.current_scope
-        old_function = self.current_function
-
-        self.current_function = node
-        self.current_scope = Scope(old_scope)
-
-        # Parameters
-        for param in node.params:
-
-            self.check_type(param.type_name)
-
-            symbol = Symbol(
-                param.name,
-                param.type_name,
-                "parameter",
-                param
-            )
-
-            self.current_scope.define(symbol)
-
-        self.visit_block(node.body)
-
-        self.current_scope = old_scope
-        self.current_function = old_function
-
-    # ---------------- BLOCK ----------------
-
-    def visit_block(self, node):
-
-        old_scope = self.current_scope
-
-        self.current_scope = Scope(old_scope)
-
-        for statement in node.statements:
-            self.visit(statement)
-
-        self.current_scope = old_scope
-
-    # ---------------- STATEMENTS ----------------
-
-    def visit(self, node):
-
-        name = node.__class__.__name__
-
-        if name == "VarDecl":
-            self.visit_var_decl(node)
-
-        elif name == "Assign":
-            self.visit_assign(node)
-
-        elif name == "IfStmt":
-            self.visit_if(node)
-
-        elif name == "WhileStmt":
-            self.visit_while(node)
-
-        elif name == "ReturnStmt":
-            self.visit_return(node)
-
-        elif name == "PrintStmt":
-            self.type_of(node.value)
-
-        elif name == "BreakStmt":
-
+        elif node_type == "Break":
             if self.loop_depth == 0:
-                raise SemanticError(
-                    "break used outside loop"
+                self.error(
+                    "break used outside a loop"
                 )
 
-        elif name == "ContinueStmt":
-
+        elif node_type == "Continue":
             if self.loop_depth == 0:
-                raise SemanticError(
-                    "continue used outside loop"
+                self.error(
+                    "continue used outside a loop"
                 )
 
-        elif name == "ExprStmt":
-            self.type_of(node.expression)
-
-        elif name == "FunctionDecl":
-            self.visit_nested_function(node)
-
-    # ---------------- VARIABLE ----------------
-
-    def visit_var_decl(self, node):
-
-        self.check_type(node.type_name)
-
-        symbol = Symbol(
-            node.name,
-            node.type_name,
-            "variable",
-            node
-        )
-
-        self.current_scope.define(symbol)
-
-        if node.initializer is not None:
-
-            value_type = self.type_of(
-                node.initializer
-            )
-
-            if not self.is_assignable(
-                node.type_name,
-                value_type
-            ):
-                raise SemanticError(
-                    f"Type mismatch: cannot assign "
-                    f"{value_type} to {node.type_name}"
+        elif node_type == "Return":
+            if self.current_function is None:
+                self.error(
+                    "return used outside a function"
                 )
 
-    # ---------------- ASSIGNMENT ----------------
-
-    def visit_assign(self, node):
-
-        left_type = self.type_of(node.target)
-        right_type = self.type_of(node.value)
-
-        if not self.is_assignable(
-            left_type,
-            right_type
-        ):
-            raise SemanticError(
-                f"Type mismatch: cannot assign "
-                f"{right_type} to {left_type}"
-            )
-
-    # ---------------- IF ----------------
-
-    def visit_if(self, node):
-
-        condition_type = self.type_of(
-            node.condition
-        )
-
-        if condition_type != "bool":
-            raise SemanticError(
-                "If condition must be bool"
-            )
-
-        self.visit_block(node.then_branch)
-
-        if node.else_branch:
-            self.visit_block(node.else_branch)
-
-    # ---------------- WHILE ----------------
-
-    def visit_while(self, node):
-
-        condition_type = self.type_of(
-            node.condition
-        )
-
-        if condition_type != "bool":
-            raise SemanticError(
-                "While condition must be bool"
-            )
-
-        self.loop_depth += 1
-
-        self.visit_block(node.body)
-
-        self.loop_depth -= 1
-
-    # ---------------- RETURN ----------------
-
-    def visit_return(self, node):
-
-        if self.current_function is None:
-            raise SemanticError(
-                "return outside function"
-            )
-
-        expected = (
-            self.current_function.return_type
-            or "void"
-        )
-
-        actual = (
-            "void"
-            if node.value is None
-            else self.type_of(node.value)
-        )
-
-        if expected != actual:
-
-            if not self.is_assignable(
-                expected,
-                actual
-            ):
-                raise SemanticError(
-                    f"Return type mismatch: "
-                    f"expected {expected}, "
-                    f"got {actual}"
+            else:
+                self.check_expression(
+                    statement["value"]
                 )
 
-    # ---------------- NESTED FUNCTION ----------------
-
-    def visit_nested_function(self, node):
-
-        if node.name in self.current_scope.symbols:
-            raise SemanticError(
-                f"Duplicate function: {node.name}"
+        elif node_type == "ExpressionStatement":
+            self.check_expression(
+                statement["expression"]
             )
 
-        symbol = Symbol(
-            node.name,
+    def check_function(self, function):
+        name = function["name"]
+
+        if self.symbol_table.lookup_local(name):
+            self.error(
+                f"Duplicate function declaration: {name}"
+            )
+            return
+
+        self.symbol_table.define(
+            name,
             "function",
-            "function",
-            node
+            "function"
         )
 
-        self.current_scope.define(symbol)
+        previous_function = self.current_function
+        self.current_function = function
 
-        old_scope = self.current_scope
-        old_function = self.current_function
+        self.symbol_table.enter_scope()
 
-        self.current_function = node
-        self.current_scope = Scope(old_scope)
+        for parameter in function["parameters"]:
+            name = parameter["name"]
+            data_type = parameter["type"]
 
-        for param in node.params:
-
-            self.check_type(param.type_name)
-
-            self.current_scope.define(
-                Symbol(
-                    param.name,
-                    param.type_name,
-                    "parameter",
-                    param
+            if self.symbol_table.lookup_local(name):
+                self.error(
+                    f"Duplicate parameter: {name}"
                 )
-            )
+            else:
+                self.symbol_table.define(
+                    name,
+                    data_type,
+                    "parameter"
+                )
 
-        self.visit_block(node.body)
+        self.check_statement(function["body"])
 
-        self.current_scope = old_scope
-        self.current_function = old_function
+        self.symbol_table.exit_scope()
 
-    # ---------------- TYPE CHECKING ----------------
+        self.current_function = previous_function
 
-    def type_of(self, node):
+    def check_expression(self, expression):
+        if expression is None:
+            return "void"
 
-        name = node.__class__.__name__
+        node_type = expression["type"]
 
-        # Literal
-        if name == "Literal":
+        if node_type == "Number":
+            return "int"
 
-            value = node.value
+        if node_type == "Boolean":
+            return "bool"
 
-            if isinstance(value, bool):
-                return "bool"
+        if node_type == "Identifier":
+            name = expression["name"]
 
-            if isinstance(value, int):
-                return "int"
-
-            if isinstance(value, float):
-                return "float"
-
-            if isinstance(value, str):
-                return "string"
-
-        # Variable
-        elif name == "Variable":
-
-            symbol = self.current_scope.lookup(
-                node.name
-            )
+            symbol = self.symbol_table.lookup(name)
 
             if symbol is None:
-                raise SemanticError(
-                    f"Undeclared variable: {node.name}"
+                self.error(
+                    f"Undeclared identifier: {name}"
+                )
+                return "error"
+
+            return symbol.symbol_type
+
+        if node_type == "Assignment":
+            left_type = self.check_expression(
+                expression["left"]
+            )
+
+            right_type = self.check_expression(
+                expression["right"]
+            )
+
+            if expression["left"]["type"] != "Identifier":
+                self.error(
+                    "Left side of assignment must be a variable"
+                )
+                return "error"
+
+            if (
+                left_type != "error"
+                and right_type != "error"
+                and left_type != right_type
+            ):
+                self.error(
+                    f"Type mismatch in assignment: "
+                    f"{left_type} = {right_type}"
                 )
 
-            return symbol.type_name
+            return left_type
 
-        # Binary expression
-        elif name == "Binary":
+        if node_type == "Binary":
+            left_type = self.check_expression(
+                expression["left"]
+            )
 
-            left = self.type_of(node.left)
-            right = self.type_of(node.right)
-            op = node.operator
+            right_type = self.check_expression(
+                expression["right"]
+            )
 
-            if op in [
-                "+", "-", "*", "/", "%"
-            ]:
+            operator = expression["operator"]
 
-                if left not in ["int", "float"]:
-                    raise SemanticError(
-                        "Arithmetic requires numbers"
+            arithmetic = ["+", "-", "*", "/", "%"]
+            comparison = [
+                "==", "!=", "<", ">", "<=", ">="
+            ]
+
+            if operator in arithmetic:
+                if left_type != "int" or right_type != "int":
+                    self.error(
+                        f"Arithmetic operator '{operator}' "
+                        f"requires integer operands"
                     )
-
-                if right not in ["int", "float"]:
-                    raise SemanticError(
-                        "Arithmetic requires numbers"
-                    )
-
-                if (
-                    left == "float"
-                    or right == "float"
-                ):
-                    return "float"
+                    return "error"
 
                 return "int"
 
-            if op in [
-                "<", ">", "<=", ">="
-            ]:
-                return "bool"
+            if operator in comparison:
+                if left_type == "error" or right_type == "error":
+                    return "error"
 
-            if op in ["==", "!="]:
-                return "bool"
-
-            if op in ["&&", "||"]:
-
-                if (
-                    left != "bool"
-                    or right != "bool"
-                ):
-                    raise SemanticError(
-                        "Logical operators require bool"
+                if left_type != right_type:
+                    self.error(
+                        f"Cannot compare {left_type} "
+                        f"with {right_type}"
                     )
 
                 return "bool"
 
-        # Unary expression
-        elif name == "Unary":
-
-            operand_type = self.type_of(
-                node.operand
+        if node_type == "Unary":
+            operand_type = self.check_expression(
+                expression["operand"]
             )
 
-            if node.operator == "!":
-
-                if operand_type != "bool":
-                    raise SemanticError(
-                        "! requires bool"
-                    )
-
-                return "bool"
-
-            if node.operator == "-":
-
-                if operand_type not in [
-                    "int",
-                    "float"
-                ]:
-                    raise SemanticError(
-                        "Unary - requires number"
-                    )
-
-                return operand_type
-
-        # Function call
-        elif name == "Call":
-            return self.type_of_call(node)
-
-        # Struct member
-        elif name == "Member":
-
-            object_type = self.type_of(
-                node.object
-            )
-
-            if object_type not in self.structs:
-                raise SemanticError(
-                    f"{object_type} is not a struct"
+            if operand_type != "int":
+                self.error(
+                    "Unary operator requires integer operand"
                 )
+                return "error"
 
-            fields = self.structs[object_type]
+            return "int"
 
-            if node.name not in fields:
-                raise SemanticError(
-                    f"Unknown field: {node.name}"
-                )
-
-            return fields[node.name]
-
-        return "void"
-
-    # ---------------- FUNCTION CALL ----------------
-
-    def type_of_call(self, node):
-
-        if hasattr(node.callee, "name"):
-
-            function_name = node.callee.name
-
-            function = self.functions.get(
-                function_name
+        if node_type == "Call":
+            function = self.symbol_table.lookup(
+                expression["name"]
             )
 
             if function is None:
-
-                symbol = self.current_scope.lookup(
-                    function_name
+                self.error(
+                    f"Undefined function: "
+                    f"{expression['name']}"
                 )
 
-                if symbol is None:
-                    raise SemanticError(
-                        f"Undeclared function: "
-                        f"{function_name}"
-                    )
+            for argument in expression["arguments"]:
+                self.check_expression(argument)
 
-                function = symbol.node
+            return "int"
 
-            if len(node.arguments) != len(
-                function.params
-            ):
-                raise SemanticError(
-                    f"Wrong number of arguments "
-                    f"for {function_name}"
-                )
-
-            for arg, param in zip(
-                node.arguments,
-                function.params
-            ):
-
-                actual = self.type_of(arg)
-
-                if not self.is_assignable(
-                    param.type_name,
-                    actual
-                ):
-                    raise SemanticError(
-                        f"Argument type mismatch "
-                        f"in {function_name}"
-                    )
-
-            return (
-                function.return_type
-                or "void"
-            )
-
-        raise SemanticError(
-            "Invalid function call"
-        )
-
-    # ---------------- TYPE VALIDATION ----------------
-
-    def check_type(self, type_name):
-
-        builtin = {
-            "int",
-            "float",
-            "string",
-            "bool",
-            "void"
-        }
-
-        if type_name in builtin:
-            return
-
-        if type_name not in self.structs:
-            raise SemanticError(
-                f"Unknown type: {type_name}"
-            )
-
-    # ---------------- ASSIGNABILITY ----------------
-
-    def is_assignable(
-        self,
-        target,
-        source
-    ):
-
-        if target == source:
-            return True
-
-        # int can be assigned to float
-        if (
-            target == "float"
-            and source == "int"
-        ):
-            return True
-
-        return False
+        return "error"
