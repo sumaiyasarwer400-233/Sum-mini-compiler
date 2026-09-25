@@ -1,0 +1,37 @@
+mstruct Student {
+    mint id;
+    mstring name;
+}
+
+mfunc add(mint a, mint b) {
+    mint result;
+    result = a + b;
+    mreturn result;
+}
+
+mfunc main() {
+    mint x;
+    mint y;
+    mint total;
+
+    x = 10;
+    y = 20;
+
+    total = add(x, y);
+
+    mif (total > 20) {
+        mstring message;
+    } melse {
+        mstring other;
+    }
+
+    mfunc nested(mint value) {
+        mint result;
+        result = value + x;
+        mreturn result;
+    }
+
+    total = nested(5);
+
+    mreturn total;
+}
