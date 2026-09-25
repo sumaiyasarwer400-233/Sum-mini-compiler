@@ -1,112 +1,172 @@
-from dataclasses import dataclass
-from typing import List, Optional, Any
+class ASTNode:
+    def __init__(self, node_type, **attributes):
+        self.node_type = node_type
+        self.attributes = attributes
+
+    def __repr__(self):
+        return self._format()
+
+    def _format(self, level=0):
+        space = "  " * level
+        result = f"{space}{self.node_type}"
+
+        for key, value in self.attributes.items():
+            result += f"\n{space}  {key}:"
+
+            if isinstance(value, ASTNode):
+                result += "\n" + value._format(level + 2)
+
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, ASTNode):
+                        result += "\n" + item._format(level + 2)
+                    else:
+                        result += f"\n{space}    {item}"
+
+            else:
+                result += f" {value}"
+
+        return result
 
 
-@dataclass
-class Program:
-    declarations: List[Any]
+class Program(ASTNode):
+    def __init__(self, statements):
+        super().__init__(
+            "Program",
+            statements=statements
+        )
 
 
-@dataclass
-class StructDecl:
-    name: str
-    fields: List[Any]
+class Function(ASTNode):
+    def __init__(self, name, parameters, body):
+        super().__init__(
+            "Function",
+            name=name,
+            parameters=parameters,
+            body=body
+        )
 
 
-@dataclass
-class FunctionDecl:
-    name: str
-    params: List[Any]
-    return_type: Optional[str]
-    body: Any
+class Block(ASTNode):
+    def __init__(self, statements):
+        super().__init__(
+            "Block",
+            statements=statements
+        )
 
 
-@dataclass
-class VarDecl:
-    name: str
-    type_name: str
-    initializer: Optional[Any] = None
+class Number(ASTNode):
+    def __init__(self, value):
+        super().__init__(
+            "Number",
+            value=value
+        )
 
 
-@dataclass
-class Block:
-    statements: List[Any]
+class Boolean(ASTNode):
+    def __init__(self, value):
+        super().__init__(
+            "Boolean",
+            value=value
+        )
 
 
-@dataclass
-class Assign:
-    target: Any
-    value: Any
+class Identifier(ASTNode):
+    def __init__(self, name):
+        super().__init__(
+            "Identifier",
+            name=name
+        )
 
 
-@dataclass
-class IfStmt:
-    condition: Any
-    then_branch: Any
-    else_branch: Optional[Any] = None
+class BinaryExpression(ASTNode):
+    def __init__(self, operator, left, right):
+        super().__init__(
+            "BinaryExpression",
+            operator=operator,
+            left=left,
+            right=right
+        )
 
 
-@dataclass
-class WhileStmt:
-    condition: Any
-    body: Any
+class UnaryExpression(ASTNode):
+    def __init__(self, operator, operand):
+        super().__init__(
+            "UnaryExpression",
+            operator=operator,
+            operand=operand
+        )
 
 
-@dataclass
-class ReturnStmt:
-    value: Optional[Any] = None
+class Assignment(ASTNode):
+    def __init__(self, left, right):
+        super().__init__(
+            "Assignment",
+            left=left,
+            right=right
+        )
 
 
-@dataclass
-class PrintStmt:
-    value: Any
+class IfStatement(ASTNode):
+    def __init__(self, condition, then_branch, else_branch=None):
+        super().__init__(
+            "IfStatement",
+            condition=condition,
+            then_branch=then_branch,
+            else_branch=else_branch
+        )
 
 
-@dataclass
-class BreakStmt:
-    pass
+class WhileStatement(ASTNode):
+    def __init__(self, condition, body):
+        super().__init__(
+            "WhileStatement",
+            condition=condition,
+            body=body
+        )
 
 
-@dataclass
-class ContinueStmt:
-    pass
+class ForStatement(ASTNode):
+    def __init__(self, initialization, condition, update, body):
+        super().__init__(
+            "ForStatement",
+            initialization=initialization,
+            condition=condition,
+            update=update,
+            body=body
+        )
 
 
-@dataclass
-class ExprStmt:
-    expression: Any
+class ReturnStatement(ASTNode):
+    def __init__(self, value):
+        super().__init__(
+            "ReturnStatement",
+            value=value
+        )
 
 
-@dataclass
-class Literal:
-    value: Any
+class BreakStatement(ASTNode):
+    def __init__(self):
+        super().__init__("BreakStatement")
 
 
-@dataclass
-class Variable:
-    name: str
+class ContinueStatement(ASTNode):
+    def __init__(self):
+        super().__init__("ContinueStatement")
 
 
-@dataclass
-class Binary:
-    left: Any
-    operator: str
-    right: Any
+class CallExpression(ASTNode):
+    def __init__(self, name, arguments):
+        super().__init__(
+            "CallExpression",
+            name=name,
+            arguments=arguments
+        )
 
 
-@dataclass
-class Unary:
-    operator: str
-    operand: Any
-
-
-@dataclass
-class Call:
-    callee: Any
-    arguments: List[Any]
-
-
-@dataclass
-class Member:
-    object: Any
-    name: str
+class ExpressionStatement(ASTNode):
+    def __init__(self, expression):
+        super().__init__(
+            "ExpressionStatement",
+            expression=expression
+        )
