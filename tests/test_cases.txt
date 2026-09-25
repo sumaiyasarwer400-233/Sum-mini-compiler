@@ -30,7 +30,13 @@ mstruct Student {
     mstring name;
 }
 
-mint age;
+mfunc testStructAccess() {
+    Student student;
+
+    student.id = 101;
+
+    mreturn student.id;
+}
 
 
 ----------------------------------------
@@ -214,4 +220,4 @@ mfunc test() {
 }
 
 Expected:
-Syntax error because ';' is missing.
+Struct member access should be accepted.
