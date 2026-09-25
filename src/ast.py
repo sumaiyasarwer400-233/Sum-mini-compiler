@@ -1,6 +1,4 @@
 class ASTNode:
-    """Base class for all AST nodes."""
-
     def __init__(self, line=0, column=0):
         self.line = line
         self.column = column
@@ -18,6 +16,10 @@ class Block(ASTNode):
         self.statements = statements
 
 
+# -----------------------------
+# Variable and Struct Declarations
+# -----------------------------
+
 class VariableDeclaration(ASTNode):
     def __init__(self, var_type, name, line=0, column=0):
         super().__init__(line, column)
@@ -25,13 +27,23 @@ class VariableDeclaration(ASTNode):
         self.name = name
 
 
-class ArrayDeclaration(ASTNode):
-    def __init__(self, element_type, name, size, line=0, column=0):
+class StructDeclaration(ASTNode):
+    def __init__(self, name, fields, line=0, column=0):
         super().__init__(line, column)
-        self.element_type = element_type
         self.name = name
-        self.size = size
+        self.fields = fields
 
+
+class FieldDeclaration(ASTNode):
+    def __init__(self, field_type, name, line=0, column=0):
+        super().__init__(line, column)
+        self.field_type = field_type
+        self.name = name
+
+
+# -----------------------------
+# Function
+# -----------------------------
 
 class FunctionDeclaration(ASTNode):
     def __init__(
@@ -57,6 +69,10 @@ class Parameter(ASTNode):
         self.name = name
 
 
+# -----------------------------
+# Statements
+# -----------------------------
+
 class IfStatement(ASTNode):
     def __init__(
         self,
@@ -72,52 +88,6 @@ class IfStatement(ASTNode):
         self.else_branch = else_branch
 
 
-class WhileStatement(ASTNode):
-    def __init__(
-        self,
-        condition,
-        body,
-        line=0,
-        column=0
-    ):
-        super().__init__(line, column)
-        self.condition = condition
-        self.body = body
-
-
-class SwitchStatement(ASTNode):
-    def __init__(
-        self,
-        expression,
-        cases,
-        default_case=None,
-        line=0,
-        column=0
-    ):
-        super().__init__(line, column)
-        self.expression = expression
-        self.cases = cases
-        self.default_case = default_case
-
-
-class CaseStatement(ASTNode):
-    def __init__(
-        self,
-        value,
-        statements,
-        line=0,
-        column=0
-    ):
-        super().__init__(line, column)
-        self.value = value
-        self.statements = statements
-
-
-class BreakStatement(ASTNode):
-    def __init__(self, line=0, column=0):
-        super().__init__(line, column)
-
-
 class ReturnStatement(ASTNode):
     def __init__(self, expression=None, line=0, column=0):
         super().__init__(line, column)
@@ -125,29 +95,10 @@ class ReturnStatement(ASTNode):
 
 
 class Assignment(ASTNode):
-    def __init__(
-        self,
-        target,
-        expression,
-        line=0,
-        column=0
-    ):
+    def __init__(self, target, expression, line=0, column=0):
         super().__init__(line, column)
         self.target = target
         self.expression = expression
-
-
-class ArrayAccess(ASTNode):
-    def __init__(
-        self,
-        name,
-        index,
-        line=0,
-        column=0
-    ):
-        super().__init__(line, column)
-        self.name = name
-        self.index = index
 
 
 class ExpressionStatement(ASTNode):
@@ -155,6 +106,10 @@ class ExpressionStatement(ASTNode):
         super().__init__(line, column)
         self.expression = expression
 
+
+# -----------------------------
+# Expressions
+# -----------------------------
 
 class BinaryExpression(ASTNode):
     def __init__(
@@ -219,3 +174,23 @@ class FunctionCall(ASTNode):
         super().__init__(line, column)
         self.name = name
         self.arguments = arguments
+
+
+# -----------------------------
+# Struct Member Access
+# Example:
+# student.id
+# student.name
+# -----------------------------
+
+class StructAccess(ASTNode):
+    def __init__(
+        self,
+        object_name,
+        field_name,
+        line=0,
+        column=0
+    ):
+        super().__init__(line, column)
+        self.object_name = object_name
+        self.field_name = field_name
