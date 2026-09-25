@@ -1,38 +1,88 @@
-# MiniLang-233 Compiler
+# MiniLang Compiler - Variant 2
 
-## Compiler Design Lab Assignment
+## Student Information
 
-**Student Roll:** 233-006-042  
-**Language:** MiniLang  
-**Personalized Variant:** 1  
-**Implementation:** Python  
-**Parser Type:** Hand-written Recursive Descent Parser
+- Student ID: 233-006-042
+- Roll: 42
+- Language: MiniLang
+- Personalized Variant: Variant 2
 
----
+## Personalized Features
 
-## 1. Project Description
+Since:
 
-MiniLang-233 is a small compiler developed for the Compiler Design Lab assignment.
+42 mod 4 = 2
 
-The compiler demonstrates the major phases of a compiler:
+This project implements **Variant 2**, which includes:
 
-1. Lexical Analysis
-2. Syntax Analysis
-3. Abstract Syntax Tree (AST)
-4. Semantic Analysis
-5. Symbol Table Management
-6. Three-Address Code (TAC) Generation
-7. Code Optimization
-8. Backend Code Generation
-9. Stack Machine Interpretation
-
-The lexer and parser are implemented manually without using Lex, Yacc, ANTLR, Flex, or Bison.
+1. Structs / Records
+2. Nested Functions
+3. Static Scoping
 
 ---
 
-## 2. Personalized Variant
+# Project Description
 
-Roll number:
+MiniLang is a small custom programming language designed and implemented as a compiler project.
+
+The compiler is completely hand-written and does not use compiler-generator tools such as:
+
+- Lex
+- Yacc
+- Flex
+- Bison
+- ANTLR
+
+The compiler contains both a front-end and a simple back-end.
+
+---
+
+# Compiler Architecture
 
 ```text
-233
+MiniLang Source Code
+        |
+        v
++------------------+
+|      Lexer       |
++------------------+
+        |
+        v
++------------------+
+|      Parser      |
++------------------+
+        |
+        v
++------------------+
+|       AST        |
++------------------+
+        |
+        v
++----------------------+
+| Semantic Analysis    |
+| + Symbol Table       |
+| + Static Scoping     |
++----------------------+
+        |
+        v
++------------------+
+|       TAC        |
++------------------+
+        |
+        v
++----------------------+
+| TAC Optimization     |
+| 1. Constant Folding |
+| 2. CSE               |
++----------------------+
+        |
+        v
++----------------------+
+| Stack Machine        |
+| Backend              |
++----------------------+
+        |
+        v
++----------------------+
+| Stack Interpreter    |
++----------------------+
