@@ -1,104 +1,171 @@
-class StackMachine:
-    def __init__(self):
-        self.code = []
+class StackMachineBackend:
+    """
+    Converts Three-Address Code (TAC)
+    into simple stack-machine instructions.
+    """
 
-    def generate(self, instructions):
-        self.code = []
+    def __init__(self, tac_code):
+        self.tac_code = tac_code
+        self.instructions = []
+        self.variables = set()
 
-        for instruction in instructions:
-            parts = instruction.split()
+    def generate(self):
+        self.instructions = []
+        self.variables = set()
 
-            if not parts:
+        for line in self.tac_code:
+            line = line.strip()
+
+            if not line:
+                continue
+
+            # Label
+            if line.endswith(":"):
+                self.instructions.append(line)
+                continue
+
+            # goto LABEL
+            if line.startswith("goto "):
+                label = line[5:].strip()
+                self.instructions.append(f"JMP {label}")
+                continue
+
+            # if condition goto LABEL
+            if line.startswith("if "):
+                parts = line.split()
+
+                if len(parts) >= 5 and parts[-2] == "goto":
+                    left = parts[1]
+                    operator = parts[2]
+                    right = parts[3]
+                    label = parts[4]
+
+                    self.load_value(left)
+                    self.load_value(right)
+
+                    self.instructions.append(
+                        f"CMP_{self.operator_name(operator)}"
+                    )
+                    self.instructions.append(f"JMP_IF_TRUE {label}")
+
+                continue
+
+            # return value
+            if line.startswith("return "):
+                value = line[7:].strip()
+                self.load_value(value)
+                self.instructions.append("RETURN")
                 continue
 
             # x = value
-            if len(parts) == 3 and parts[1] == "=":
-                target = parts[0]
-                value = parts[2]
+            if "=" in line:
+                left, right = line.split("=", 1)
+                left = left.strip()
+                right = right.strip()
 
-                self.code.append(f"PUSH {value}")
-                self.code.append(f"STORE {target}")
+                # Binary operation
+                parts = right.split()
 
-            # t1 = a + b
-            elif len(parts) == 5 and parts[1] == "=":
-                target = parts[0]
-                left = parts[2]
-                operator = parts[3]
-                right = parts[4]
+                if len(parts) == 3:
+                    operand1 = parts[0]
+                    operator = parts[1]
+                    operand2 = parts[2]
 
-                self.code.append(f"PUSH {left}")
-                self.code.append(f"PUSH {right}")
+                    self.load_value(operand1)
+                    self.load_value(operand2)
 
-                operation = {
-                    "+": "ADD",
-                    "-": "SUB",
-                    "*": "MUL",
-                    "/": "DIV",
-                    "%": "MOD",
-                    "==": "CMP_EQ",
-                    "!=": "CMP_NE",
-                    "<": "CMP_LT",
-                    ">": "CMP_GT",
-                    "<=": "CMP_LE",
-                    ">=": "CMP_GE"
-                }
-
-                if operator in operation:
-                    self.code.append(
-                        operation[operator]
+                    self.instructions.append(
+                        self.operation_instruction(operator)
                     )
 
-                self.code.append(
-                    f"STORE {target}"
+                    self.instructions.append(
+                        f"STORE {left}"
+                    )
+
+                    self.variables.add(left)
+                    continue
+
+                # Simple assignment
+                self.load_value(right)
+
+                self.instructions.append(
+                    f"STORE {left}"
                 )
 
-            elif parts[0] == "LABEL":
-                self.code.append(
-                    f"LABEL {parts[1]}"
-                )
+                self.variables.add(left)
 
-            elif parts[0] == "GOTO":
-                self.code.append(
-                    f"JUMP {parts[1]}"
-                )
+                continue
 
-            elif parts[0] == "IF_FALSE":
-                condition = parts[1]
-                label = parts[3]
+        return self.instructions
 
-                self.code.append(
-                    f"PUSH {condition}"
-                )
-                self.code.append(
-                    f"JUMP_IF_FALSE {label}"
-                )
+    # ---------------------------------------------------------
+    # LOAD VALUE
+    # ---------------------------------------------------------
+    def load_value(self, value):
+        value = value.strip()
 
-            elif parts[0] == "RETURN":
-                self.code.append(
-                    f"RETURN {parts[1]}"
-                )
+        if value.isdigit() or (
+            value.startswith("-") and value[1:].isdigit()
+        ):
+            self.instructions.append(f"PUSH {value}")
 
-            elif parts[0] == "PARAM":
-                self.code.append(
-                    f"PUSH {parts[1]}"
-                )
+        elif value in {"true", "True"}:
+            self.instructions.append("PUSH 1")
 
-            elif parts[0] == "CALL":
-                self.code.append(instruction)
+        elif value in {"false", "False"}:
+            self.instructions.append("PUSH 0")
 
-            elif "CALL" in instruction:
-                self.code.append(instruction)
+        elif value.startswith('"') and value.endswith('"'):
+            self.instructions.append(f"PUSH {value}")
 
-            elif parts[0] == "FUNCTION":
-                self.code.append(instruction)
+        else:
+            self.instructions.append(f"LOAD {value}")
+            self.variables.add(value)
 
-            elif parts[0] == "END_FUNCTION":
-                self.code.append(instruction)
+    # ---------------------------------------------------------
+    # OPERATOR TO MACHINE INSTRUCTION
+    # ---------------------------------------------------------
+    def operation_instruction(self, operator):
+        operations = {
+            "+": "ADD",
+            "-": "SUB",
+            "*": "MUL",
+            "/": "DIV",
+            "%": "MOD",
+            "==": "CMP_EQ",
+            "!=": "CMP_NE",
+            "<": "CMP_LT",
+            ">": "CMP_GT",
+            "<=": "CMP_LE",
+            ">=": "CMP_GE",
+            "&&": "AND",
+            "||": "OR",
+        }
 
-            elif parts[0] == "BREAK":
-                self.code.append("BREAK")
+        return operations.get(operator, "UNKNOWN_OP")
 
-            elif parts[0] == "CONTINUE":
-                self.code.append("CONTINUE")
+    # ---------------------------------------------------------
+    # OPERATOR NAME
+    # ---------------------------------------------------------
+    def operator_name(self, operator):
+        names = {
+            "==": "EQ",
+            "!=": "NE",
+            "<": "LT",
+            ">": "GT",
+            "<=": "LE",
+            ">=": "GE",
+        }
 
-        return self.code
+        return names.get(operator, "UNKNOWN")
+
+    # ---------------------------------------------------------
+    # PRINT BACKEND CODE
+    # ---------------------------------------------------------
+    def print_code(self):
+        print("\n===== STACK MACHINE CODE =====")
+
+        for instruction in self.instructions:
+            print(instruction)
+
+        print("==============================")
