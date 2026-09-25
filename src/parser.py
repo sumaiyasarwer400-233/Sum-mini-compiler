@@ -1,736 +1,779 @@
 from ast import (
     Program,
-    StructDecl,
-    FunctionDecl,
-    VarDecl,
     Block,
-    Assign,
-    IfStmt,
-    WhileStmt,
-    ReturnStmt,
-    PrintStmt,
-    BreakStmt,
-    ContinueStmt,
-    ExprStmt,
-    Literal,
-    Variable,
-    Binary,
-    Unary,
-    Call,
-    Member,
+    VariableDeclaration,
+    ArrayDeclaration,
+    FunctionDeclaration,
+    Parameter,
+    IfStatement,
+    WhileStatement,
+    SwitchStatement,
+    CaseStatement,
+    BreakStatement,
+    ReturnStatement,
+    Assignment,
+    ArrayAccess,
+    ExpressionStatement,
+    BinaryExpression,
+    UnaryExpression,
+    NumberLiteral,
+    StringLiteral,
+    BooleanLiteral,
+    Identifier,
+    FunctionCall,
 )
 
 
 class Parser:
-
     def __init__(self, tokens):
         self.tokens = tokens
-        self.pos = 0
-
-    # =========================
-    # Basic helpers
-    # =========================
+        self.position = 0
+        self.errors = []
 
     def current(self):
-        return self.tokens[self.pos]
+        return self.tokens[self.position]
 
-    def check(self, kind):
-        return self.current().kind == kind
+    def peek(self, offset=1):
+        index = self.position + offset
+
+        if index >= len(self.tokens):
+            return self.tokens[-1]
+
+        return self.tokens[index]
 
     def advance(self):
         token = self.current()
 
-        if self.pos < len(self.tokens) - 1:
-            self.pos += 1
+        if self.position < len(self.tokens) - 1:
+            self.position += 1
 
         return token
 
-    def match(self, kind):
-        if self.check(kind):
+    def check(self, token_type, value=None):
+        token = self.current()
+
+        if token.token_type != token_type:
+            return False
+
+        if value is not None and token.value != value:
+            return False
+
+        return True
+
+    def match(self, token_type, value=None):
+        if self.check(token_type, value):
             return self.advance()
 
         return None
 
-    def expect(self, kind):
-        if not self.check(kind):
-            token = self.current()
+    def expect(self, token_type, value=None):
+        if self.check(token_type, value):
+            return self.advance()
 
-            raise SyntaxError(
-                f"Expected {kind}, got {token.kind} "
-                f"at line {token.line}, "
-                f"column {token.column}"
-            )
+        token = self.current()
 
-        return self.advance()
+        expected = value if value is not None else token_type
 
-    # =========================
-    # Program
-    # =========================
+        self.errors.append(
+            f"Syntax Error at line {token.line}, "
+            f"column {token.column}: "
+            f"Expected '{expected}', "
+            f"found '{token.value}'."
+        )
+
+        return None
 
     def parse(self):
         declarations = []
 
         while not self.check("EOF"):
+            declaration = self.parse_declaration()
 
-            if self.check("STRUCT"):
-                declarations.append(
-                    self.struct_declaration()
-                )
-
-            elif self.check("FUNCTION"):
-                declarations.append(
-                    self.function_declaration()
-                )
-
+            if declaration is not None:
+                declarations.append(declaration)
             else:
-                token = self.current()
-
-                raise SyntaxError(
-                    f"Expected struct or function "
-                    f"at line {token.line}, "
-                    f"column {token.column}"
-                )
+                if not self.check("EOF"):
+                    self.advance()
 
         return Program(declarations)
 
-    # =========================
-    # Struct
-    # =========================
+    # -------------------------------------------------
+    # Declarations
+    # -------------------------------------------------
 
-    def struct_declaration(self):
+    def parse_declaration(self):
+        if self.check("FUNCTION"):
+            return self.parse_function()
 
-        self.expect("STRUCT")
+        if self.check("INT") or self.check("BOOL"):
+            return self.parse_typed_declaration()
 
-        name = self.expect("IDENTIFIER").value
+        return self.parse_statement()
 
-        self.expect("LBRACE")
+    def parse_typed_declaration(self):
+        type_token = self.advance()
+        var_type = type_token.value
 
-        fields = []
+        name_token = self.expect("IDENTIFIER")
 
-        while not self.check("RBRACE"):
+        if name_token is None:
+            return None
 
-            field_name = self.expect(
-                "IDENTIFIER"
-            ).value
+        # Array declaration
+        if self.match("SYMBOL", "["):
+            size_token = self.expect("NUMBER")
 
-            self.expect("COLON")
+            if size_token is None:
+                return None
 
-            field_type = self.type_name()
+            self.expect("SYMBOL", "]")
+            self.expect("SYMBOL", ";")
 
-            self.expect("SEMICOLON")
+            return ArrayDeclaration(
+                var_type,
+                name_token.value,
+                size_token.value,
+                type_token.line,
+                type_token.column,
+            )
 
-            fields.append(
-                VarDecl(
-                    field_name,
-                    field_type
+        # Normal variable declaration
+        self.expect("SYMBOL", ";")
+
+        return VariableDeclaration(
+            var_type,
+            name_token.value,
+            type_token.line,
+            type_token.column,
+        )
+
+    # -------------------------------------------------
+    # Function
+    # -------------------------------------------------
+
+    def parse_function(self):
+        function_token = self.advance()
+
+        name_token = self.expect("IDENTIFIER")
+
+        if name_token is None:
+            return None
+
+        self.expect("SYMBOL", "(")
+
+        parameters = self.parse_parameters()
+
+        self.expect("SYMBOL", ")")
+
+        body = self.parse_block()
+
+        return FunctionDeclaration(
+            name_token.value,
+            parameters,
+            body,
+            "int",
+            function_token.line,
+            function_token.column,
+        )
+
+    def parse_parameters(self):
+        parameters = []
+
+        if self.check("SYMBOL", ")"):
+            return parameters
+
+        while True:
+            if not (self.check("INT") or self.check("BOOL")):
+                token = self.current()
+
+                self.errors.append(
+                    f"Syntax Error at line {token.line}, "
+                    f"column {token.column}: "
+                    f"Expected parameter type."
+                )
+
+                break
+
+            type_token = self.advance()
+
+            name_token = self.expect("IDENTIFIER")
+
+            if name_token is None:
+                break
+
+            parameters.append(
+                Parameter(
+                    type_token.value,
+                    name_token.value,
+                    type_token.line,
+                    type_token.column,
                 )
             )
 
-        self.expect("RBRACE")
-        self.expect("SEMICOLON")
+            if not self.match("SYMBOL", ","):
+                break
 
-        return StructDecl(
-            name,
-            fields
-        )
+        return parameters
 
-    # =========================
-    # Function
-    # =========================
+    # -------------------------------------------------
+    # Statements
+    # -------------------------------------------------
 
-    def function_declaration(self):
+    def parse_statement(self):
+        if self.check("SYMBOL", "{"):
+            return self.parse_block()
 
-        self.expect("FUNCTION")
+        if self.check("IF"):
+            return self.parse_if()
 
-        name = self.expect(
-            "IDENTIFIER"
-        ).value
+        if self.check("WHILE"):
+            return self.parse_while()
 
-        self.expect("LPAREN")
+        if self.check("SWITCH"):
+            return self.parse_switch()
 
-        params = []
+        if self.check("RETURN"):
+            return self.parse_return()
 
-        if not self.check("RPAREN"):
+        if self.check("BREAK"):
+            return self.parse_break()
 
-            while True:
+        if self.check("INT") or self.check("BOOL"):
+            return self.parse_typed_declaration()
 
-                param_name = self.expect(
-                    "IDENTIFIER"
-                ).value
+        return self.parse_expression_or_assignment()
 
-                self.expect("COLON")
-
-                param_type = self.type_name()
-
-                params.append(
-                    VarDecl(
-                        param_name,
-                        param_type
-                    )
-                )
-
-                if not self.match("COMMA"):
-                    break
-
-        self.expect("RPAREN")
-
-        return_type = None
-
-        if self.match("COLON"):
-            return_type = self.type_name()
-
-        body = self.block()
-
-        return FunctionDecl(
-            name,
-            params,
-            return_type,
-            body
-        )
-
-    # =========================
-    # Type
-    # =========================
-
-    def type_name(self):
-
-        token = self.current()
-
-        if token.kind in [
-            "INT",
-            "FLOAT",
-            "STRING",
-            "BOOL",
-        ]:
-            self.advance()
-            return token.value
-
-        if token.kind == "IDENTIFIER":
-            self.advance()
-            return token.value
-
-        raise SyntaxError(
-            f"Expected type at line "
-            f"{token.line}, column {token.column}"
-        )
-
-    # =========================
+    # -------------------------------------------------
     # Block
-    # =========================
+    # -------------------------------------------------
 
-    def block(self):
-
-        self.expect("LBRACE")
+    def parse_block(self):
+        start = self.expect("SYMBOL", "{")
 
         statements = []
 
-        while not self.check("RBRACE"):
+        while not self.check("EOF") and not self.check("SYMBOL", "}"):
+            statement = self.parse_statement()
 
-            if self.check("EOF"):
-                token = self.current()
+            if statement is not None:
+                statements.append(statement)
+            else:
+                if not self.check("EOF"):
+                    self.advance()
 
-                raise SyntaxError(
-                    f"Unclosed block at line "
-                    f"{token.line}"
-                )
+        self.expect("SYMBOL", "}")
 
-            statements.append(
-                self.statement()
+        if start:
+            return Block(
+                statements,
+                start.line,
+                start.column,
             )
-
-        self.expect("RBRACE")
 
         return Block(statements)
 
-    # =========================
-    # Statement
-    # =========================
-
-    def statement(self):
-
-        if self.check("LBRACE"):
-            return self.block()
-
-        if self.check("FUNCTION"):
-            return self.function_declaration()
-
-        if self.check("IF"):
-            return self.if_statement()
-
-        if self.check("WHILE"):
-            return self.while_statement()
-
-        if self.check("RETURN"):
-            return self.return_statement()
-
-        if self.check("PRINT"):
-            return self.print_statement()
-
-        if self.check("BREAK"):
-            self.advance()
-            self.expect("SEMICOLON")
-            return BreakStmt()
-
-        if self.check("CONTINUE"):
-            self.advance()
-            self.expect("SEMICOLON")
-            return ContinueStmt()
-
-        if self.check("INT") or \
-           self.check("FLOAT") or \
-           self.check("STRING") or \
-           self.check("BOOL"):
-
-            return self.variable_declaration()
-
-        expression = self.expression()
-
-        if self.match("ASSIGN"):
-
-            value = self.expression()
-
-            self.expect("SEMICOLON")
-
-            return Assign(
-                expression,
-                value
-            )
-
-        self.expect("SEMICOLON")
-
-        return ExprStmt(expression)
-
-    # =========================
-    # Variable declaration
-    # =========================
-
-    def variable_declaration(self):
-
-        type_name = self.type_name()
-
-        name = self.expect(
-            "IDENTIFIER"
-        ).value
-
-        initializer = None
-
-        if self.match("ASSIGN"):
-            initializer = self.expression()
-
-        self.expect("SEMICOLON")
-
-        return VarDecl(
-            name,
-            type_name,
-            initializer
-        )
-
-    # =========================
+    # -------------------------------------------------
     # If
-    # =========================
+    # -------------------------------------------------
 
-    def if_statement(self):
+    def parse_if(self):
+        token = self.advance()
 
-        self.expect("IF")
+        self.expect("SYMBOL", "(")
 
-        self.expect("LPAREN")
+        condition = self.parse_expression()
 
-        condition = self.expression()
+        self.expect("SYMBOL", ")")
 
-        self.expect("RPAREN")
-
-        then_branch = self.block()
+        then_branch = self.parse_statement()
 
         else_branch = None
 
         if self.match("ELSE"):
-            else_branch = self.block()
+            else_branch = self.parse_statement()
 
-        return IfStmt(
+        return IfStatement(
             condition,
             then_branch,
-            else_branch
+            else_branch,
+            token.line,
+            token.column,
         )
 
-    # =========================
+    # -------------------------------------------------
     # While
-    # =========================
+    # -------------------------------------------------
 
-    def while_statement(self):
+    def parse_while(self):
+        token = self.advance()
 
-        self.expect("WHILE")
+        self.expect("SYMBOL", "(")
 
-        self.expect("LPAREN")
+        condition = self.parse_expression()
 
-        condition = self.expression()
+        self.expect("SYMBOL", ")")
 
-        self.expect("RPAREN")
+        body = self.parse_statement()
 
-        body = self.block()
-
-        return WhileStmt(
+        return WhileStatement(
             condition,
-            body
+            body,
+            token.line,
+            token.column,
         )
 
-    # =========================
+    # -------------------------------------------------
+    # Switch
+    # -------------------------------------------------
+
+    def parse_switch(self):
+        token = self.advance()
+
+        self.expect("SYMBOL", "(")
+
+        expression = self.parse_expression()
+
+        self.expect("SYMBOL", ")")
+
+        self.expect("SYMBOL", "{")
+
+        cases = []
+        default_case = None
+
+        while not self.check("EOF") and not self.check("SYMBOL", "}"):
+            if self.match("CASE"):
+                case_token = self.tokens[self.position - 1]
+
+                value = self.expect("NUMBER")
+
+                self.expect("SYMBOL", ":")
+
+                statements = self.parse_case_statements()
+
+                cases.append(
+                    CaseStatement(
+                        value.value if value else 0,
+                        statements,
+                        case_token.line,
+                        case_token.column,
+                    )
+                )
+
+            elif self.match("DEFAULT"):
+                self.expect("SYMBOL", ":")
+
+                statements = self.parse_default_statements()
+
+                default_case = Block(statements)
+
+            else:
+                current = self.current()
+
+                self.errors.append(
+                    f"Syntax Error at line {current.line}, "
+                    f"column {current.column}: "
+                    f"Expected 'mcase' or 'mdefault'."
+                )
+
+                self.advance()
+
+        self.expect("SYMBOL", "}")
+
+        return SwitchStatement(
+            expression,
+            cases,
+            default_case,
+            token.line,
+            token.column,
+        )
+
+    def parse_case_statements(self):
+        statements = []
+
+        while (
+            not self.check("EOF")
+            and not self.check("CASE")
+            and not self.check("DEFAULT")
+            and not self.check("SYMBOL", "}")
+        ):
+            if self.check("BREAK"):
+                self.advance()
+                self.expect("SYMBOL", ";")
+                statements.append(BreakStatement())
+                break
+
+            statement = self.parse_statement()
+
+            if statement is not None:
+                statements.append(statement)
+            else:
+                if not self.check("EOF"):
+                    self.advance()
+
+        return statements
+
+    def parse_default_statements(self):
+        statements = []
+
+        while (
+            not self.check("EOF")
+            and not self.check("SYMBOL", "}")
+        ):
+            if self.check("BREAK"):
+                self.advance()
+                self.expect("SYMBOL", ";")
+                statements.append(BreakStatement())
+                break
+
+            statement = self.parse_statement()
+
+            if statement is not None:
+                statements.append(statement)
+            else:
+                if not self.check("EOF"):
+                    self.advance()
+
+        return statements
+
+    # -------------------------------------------------
     # Return
-    # =========================
+    # -------------------------------------------------
 
-    def return_statement(self):
+    def parse_return(self):
+        token = self.advance()
 
-        self.expect("RETURN")
+        expression = None
 
-        value = None
+        if not self.check("SYMBOL", ";"):
+            expression = self.parse_expression()
 
-        if not self.check("SEMICOLON"):
-            value = self.expression()
+        self.expect("SYMBOL", ";")
 
-        self.expect("SEMICOLON")
+        return ReturnStatement(
+            expression,
+            token.line,
+            token.column,
+        )
 
-        return ReturnStmt(value)
+    # -------------------------------------------------
+    # Break
+    # -------------------------------------------------
 
-    # =========================
-    # Print
-    # =========================
+    def parse_break(self):
+        token = self.advance()
 
-    def print_statement(self):
+        self.expect("SYMBOL", ";")
 
-        self.expect("PRINT")
+        return BreakStatement(
+            token.line,
+            token.column,
+        )
 
-        self.expect("LPAREN")
+    # -------------------------------------------------
+    # Assignment / Expression
+    # -------------------------------------------------
 
-        value = self.expression()
+    def parse_expression_or_assignment(self):
+        start = self.current()
 
-        self.expect("RPAREN")
+        # Identifier assignment or array assignment
+        if self.check("IDENTIFIER"):
+            if self.peek().token_type == "OPERATOR" and self.peek().value == "=":
+                name_token = self.advance()
 
-        self.expect("SEMICOLON")
+                target = Identifier(
+                    name_token.value,
+                    name_token.line,
+                    name_token.column,
+                )
 
-        return PrintStmt(value)
+                self.advance()
 
-    # =========================
-    # Expression
-    # =========================
+                expression = self.parse_expression()
 
-    def expression(self):
-        return self.logical_or()
+                self.expect("SYMBOL", ";")
 
-    # =========================
-    # OR
-    # =========================
+                return Assignment(
+                    target,
+                    expression,
+                    start.line,
+                    start.column,
+                )
 
-    def logical_or(self):
+            if (
+                self.peek().token_type == "SYMBOL"
+                and self.peek().value == "["
+            ):
+                name_token = self.advance()
 
-        expr = self.logical_and()
+                self.advance()
 
-        while self.match("OR"):
+                index = self.parse_expression()
 
-            right = self.logical_and()
+                self.expect("SYMBOL", "]")
 
-            expr = Binary(
-                expr,
-                "||",
-                right
+                if (
+                    self.check("OPERATOR")
+                    and self.current().value == "="
+                ):
+                    self.advance()
+
+                    expression = self.parse_expression()
+
+                    self.expect("SYMBOL", ";")
+
+                    target = ArrayAccess(
+                        name_token.value,
+                        index,
+                        name_token.line,
+                        name_token.column,
+                    )
+
+                    return Assignment(
+                        target,
+                        expression,
+                        start.line,
+                        start.column,
+                    )
+
+                # Array access as expression statement
+                array_access = ArrayAccess(
+                    name_token.value,
+                    index,
+                    name_token.line,
+                    name_token.column,
+                )
+
+                self.expect("SYMBOL", ";")
+
+                return ExpressionStatement(
+                    array_access,
+                    start.line,
+                    start.column,
+                )
+
+        expression = self.parse_expression()
+
+        self.expect("SYMBOL", ";")
+
+        return ExpressionStatement(
+            expression,
+            start.line,
+            start.column,
+        )
+
+    # -------------------------------------------------
+    # Expressions
+    # -------------------------------------------------
+
+    def parse_expression(self):
+        return self.parse_equality()
+
+    def parse_equality(self):
+        expression = self.parse_comparison()
+
+        while self.check("OPERATOR") and self.current().value in {
+            "==",
+            "!=",
+        }:
+            operator = self.advance()
+
+            right = self.parse_comparison()
+
+            expression = BinaryExpression(
+                expression,
+                operator.value,
+                right,
+                operator.line,
+                operator.column,
             )
 
-        return expr
+        return expression
 
-    # =========================
-    # AND
-    # =========================
+    def parse_comparison(self):
+        expression = self.parse_term()
 
-    def logical_and(self):
+        while self.check("OPERATOR") and self.current().value in {
+            "<",
+            ">",
+            "<=",
+            ">=",
+        }:
+            operator = self.advance()
 
-        expr = self.equality()
+            right = self.parse_term()
 
-        while self.match("AND"):
-
-            right = self.equality()
-
-            expr = Binary(
-                expr,
-                "&&",
-                right
+            expression = BinaryExpression(
+                expression,
+                operator.value,
+                right,
+                operator.line,
+                operator.column,
             )
 
-        return expr
+        return expression
 
-    # =========================
-    # Equality
-    # =========================
+    def parse_term(self):
+        expression = self.parse_factor()
 
-    def equality(self):
+        while self.check("OPERATOR") and self.current().value in {
+            "+",
+            "-",
+        }:
+            operator = self.advance()
 
-        expr = self.comparison()
+            right = self.parse_factor()
 
-        while True:
-
-            if self.match("EQ"):
-
-                right = self.comparison()
-
-                expr = Binary(
-                    expr,
-                    "==",
-                    right
-                )
-
-            elif self.match("NE"):
-
-                right = self.comparison()
-
-                expr = Binary(
-                    expr,
-                    "!=",
-                    right
-                )
-
-            else:
-                break
-
-        return expr
-
-    # =========================
-    # Comparison
-    # =========================
-
-    def comparison(self):
-
-        expr = self.term()
-
-        while True:
-
-            if self.match("LT"):
-
-                right = self.term()
-
-                expr = Binary(
-                    expr,
-                    "<",
-                    right
-                )
-
-            elif self.match("GT"):
-
-                right = self.term()
-
-                expr = Binary(
-                    expr,
-                    ">",
-                    right
-                )
-
-            elif self.match("LE"):
-
-                right = self.term()
-
-                expr = Binary(
-                    expr,
-                    "<=",
-                    right
-                )
-
-            elif self.match("GE"):
-
-                right = self.term()
-
-                expr = Binary(
-                    expr,
-                    ">=",
-                    right
-                )
-
-            else:
-                break
-
-        return expr
-
-    # =========================
-    # Term
-    # =========================
-
-    def term(self):
-
-        expr = self.factor()
-
-        while True:
-
-            if self.match("PLUS"):
-
-                right = self.factor()
-
-                expr = Binary(
-                    expr,
-                    "+",
-                    right
-                )
-
-            elif self.match("MINUS"):
-
-                right = self.factor()
-
-                expr = Binary(
-                    expr,
-                    "-",
-                    right
-                )
-
-            else:
-                break
-
-        return expr
-
-    # =========================
-    # Factor
-    # =========================
-
-    def factor(self):
-
-        expr = self.unary()
-
-        while True:
-
-            if self.match("STAR"):
-
-                right = self.unary()
-
-                expr = Binary(
-                    expr,
-                    "*",
-                    right
-                )
-
-            elif self.match("SLASH"):
-
-                right = self.unary()
-
-                expr = Binary(
-                    expr,
-                    "/",
-                    right
-                )
-
-            elif self.match("MOD"):
-
-                right = self.unary()
-
-                expr = Binary(
-                    expr,
-                    "%",
-                    right
-                )
-
-            else:
-                break
-
-        return expr
-
-    # =========================
-    # Unary
-    # =========================
-
-    def unary(self):
-
-        if self.match("NOT"):
-
-            return Unary(
-                "!",
-                self.unary()
+            expression = BinaryExpression(
+                expression,
+                operator.value,
+                right,
+                operator.line,
+                operator.column,
             )
 
-        if self.match("MINUS"):
+        return expression
 
-            return Unary(
-                "-",
-                self.unary()
+    def parse_factor(self):
+        expression = self.parse_unary()
+
+        while self.check("OPERATOR") and self.current().value in {
+            "*",
+            "/",
+            "%",
+        }:
+            operator = self.advance()
+
+            right = self.parse_unary()
+
+            expression = BinaryExpression(
+                expression,
+                operator.value,
+                right,
+                operator.line,
+                operator.column,
             )
 
-        return self.postfix()
+        return expression
 
-    # =========================
-    # Postfix
-    # =========================
+    def parse_unary(self):
+        if self.check("OPERATOR") and self.current().value in {
+            "!",
+            "-",
+        }:
+            operator = self.advance()
 
-    def postfix(self):
+            operand = self.parse_unary()
 
-        expr = self.primary()
+            return UnaryExpression(
+                operator.value,
+                operand,
+                operator.line,
+                operator.column,
+            )
 
-        while True:
+        return self.parse_primary()
 
-            if self.match("LPAREN"):
-
-                arguments = []
-
-                if not self.check("RPAREN"):
-
-                    while True:
-
-                        arguments.append(
-                            self.expression()
-                        )
-
-                        if not self.match("COMMA"):
-                            break
-
-                self.expect("RPAREN")
-
-                expr = Call(
-                    expr,
-                    arguments
-                )
-
-            elif self.match("DOT"):
-
-                name = self.expect(
-                    "IDENTIFIER"
-                ).value
-
-                expr = Member(
-                    expr,
-                    name
-                )
-
-            else:
-                break
-
-        return expr
-
-    # =========================
+    # -------------------------------------------------
     # Primary
-    # =========================
+    # -------------------------------------------------
 
-    def primary(self):
-
+    def parse_primary(self):
         token = self.current()
 
-        if self.match("INT_LITERAL"):
-            return Literal(token.value)
+        if self.check("NUMBER"):
+            self.advance()
 
-        if self.match("FLOAT_LITERAL"):
-            return Literal(token.value)
+            return NumberLiteral(
+                token.value,
+                token.line,
+                token.column,
+            )
 
-        if self.match("STRING_LITERAL"):
-            return Literal(token.value)
+        if self.check("STRING"):
+            self.advance()
 
-        if self.match("TRUE"):
-            return Literal(True)
+            return StringLiteral(
+                token.value,
+                token.line,
+                token.column,
+            )
 
-        if self.match("FALSE"):
-            return Literal(False)
+        if self.check("TRUE"):
+            self.advance()
 
-        if self.match("IDENTIFIER"):
-            return Variable(token.value)
+            return BooleanLiteral(
+                True,
+                token.line,
+                token.column,
+            )
 
-        if self.match("LPAREN"):
+        if self.check("FALSE"):
+            self.advance()
 
-            expr = self.expression()
+            return BooleanLiteral(
+                False,
+                token.line,
+                token.column,
+            )
 
-            self.expect("RPAREN")
+        if self.check("IDENTIFIER"):
+            name_token = self.advance()
 
-            return expr
+            # Function call
+            if self.match("SYMBOL", "("):
+                arguments = []
 
-        raise SyntaxError(
-            f"Unexpected token {token.kind} "
-            f"at line {token.line}, "
-            f"column {token.column}"
+                if not self.check("SYMBOL", ")"):
+                    while True:
+                        arguments.append(
+                            self.parse_expression()
+                        )
+
+                        if not self.match("SYMBOL", ","):
+                            break
+
+                self.expect("SYMBOL", ")")
+
+                return FunctionCall(
+                    name_token.value,
+                    arguments,
+                    name_token.line,
+                    name_token.column,
+                )
+
+            # Array access
+            if self.match("SYMBOL", "["):
+                index = self.parse_expression()
+
+                self.expect("SYMBOL", "]")
+
+                return ArrayAccess(
+                    name_token.value,
+                    index,
+                    name_token.line,
+                    name_token.column,
+                )
+
+            return Identifier(
+                name_token.value,
+                name_token.line,
+                name_token.column,
+            )
+
+        if self.match("SYMBOL", "("):
+            expression = self.parse_expression()
+
+            self.expect("SYMBOL", ")")
+
+            return expression
+
+        self.errors.append(
+            f"Syntax Error at line {token.line}, "
+            f"column {token.column}: "
+            f"Unexpected token '{token.value}'."
         )
+
+        self.advance()
+
+        return NumberLiteral(0)
