@@ -1,243 +1,288 @@
-from ast import (
-    BinaryExpression,
-    UnaryExpression,
-    NumberLiteral,
-    StringLiteral,
-    BooleanLiteral,
-    Identifier,
-)
+import re
 
 
 class Optimizer:
     """
-    MiniLang optimizer.
+    MiniLang TAC Optimizer.
 
     Implemented optimizations:
     1. Constant Folding
     2. Common Subexpression Elimination (CSE)
+
+    The optimizer works directly on TAC.
     """
 
     def __init__(self):
         self.changes = []
 
-    # ---------------------------------------------------------
-    # 1. CONSTANT FOLDING
-    # ---------------------------------------------------------
-    def constant_fold(self, expression):
-        if expression is None:
-            return expression
+    # ==================================================
+    # Main optimization pipeline
+    # ==================================================
 
-        if isinstance(expression, BinaryExpression):
-            expression.left = self.constant_fold(expression.left)
-            expression.right = self.constant_fold(expression.right)
+    def optimize(self, tac_code):
+        """
+        Apply both optimizations.
 
-            if (
-                isinstance(expression.left, NumberLiteral)
-                and isinstance(expression.right, NumberLiteral)
-            ):
-                left = expression.left.value
-                right = expression.right.value
-                operator = expression.operator
+        Order:
+            TAC
+             ↓
+        Constant Folding
+             ↓
+        CSE
+             ↓
+        Optimized TAC
+        """
 
-                try:
-                    if operator == "+":
-                        result = left + right
-                    elif operator == "-":
-                        result = left - right
-                    elif operator == "*":
-                        result = left * right
-                    elif operator == "/":
-                        if right == 0:
-                            return expression
-                        result = left // right
-                    elif operator == "%":
-                        if right == 0:
-                            return expression
-                        result = left % right
-                    elif operator == "==":
-                        result = int(left == right)
-                    elif operator == "!=":
-                        result = int(left != right)
-                    elif operator == "<":
-                        result = int(left < right)
-                    elif operator == ">":
-                        result = int(left > right)
-                    elif operator == "<=":
-                        result = int(left <= right)
-                    elif operator == ">":
-                        result = int(left > right)
-                    elif operator == ">=":
-                        result = int(left >= right)
-                    else:
-                        return expression
-
-                    old_expression = (
-                        f"{left} {operator} {right}"
-                    )
-
-                    self.changes.append(
-                        f"Constant Folding: "
-                        f"{old_expression} -> {result}"
-                    )
-
-                    return NumberLiteral(
-                        result,
-                        expression.line,
-                        expression.column,
-                    )
-
-                except Exception:
-                    return expression
-
-        if isinstance(expression, UnaryExpression):
-            expression.operand = self.constant_fold(expression.operand)
-
-            if isinstance(expression.operand, NumberLiteral):
-                value = expression.operand.value
-
-                if expression.operator == "-":
-                    result = -value
-
-                    self.changes.append(
-                        f"Constant Folding: -{value} -> {result}"
-                    )
-
-                    return NumberLiteral(
-                        result,
-                        expression.line,
-                        expression.column,
-                    )
-
-                if expression.operator == "!":
-                    result = int(not value)
-
-                    self.changes.append(
-                        f"Constant Folding: !{value} -> {result}"
-                    )
-
-                    return NumberLiteral(
-                        result,
-                        expression.line,
-                        expression.column,
-                    )
-
-        return expression
-
-    # ---------------------------------------------------------
-    # 2. COMMON SUBEXPRESSION ELIMINATION
-    # ---------------------------------------------------------
-    def expression_key(self, expression):
-        if isinstance(expression, NumberLiteral):
-            return ("number", expression.value)
-
-        if isinstance(expression, StringLiteral):
-            return ("string", expression.value)
-
-        if isinstance(expression, BooleanLiteral):
-            return ("boolean", expression.value)
-
-        if isinstance(expression, Identifier):
-            return ("identifier", expression.name)
-
-        if isinstance(expression, UnaryExpression):
-            return (
-                "unary",
-                expression.operator,
-                self.expression_key(expression.operand),
-            )
-
-        if isinstance(expression, BinaryExpression):
-            return (
-                "binary",
-                expression.operator,
-                self.expression_key(expression.left),
-                self.expression_key(expression.right),
-            )
-
-        return None
-
-    def find_common_subexpressions(self, expression):
-        found = {}
-
-        def visit(node):
-            if node is None:
-                return
-
-            if isinstance(node, BinaryExpression):
-                visit(node.left)
-                visit(node.right)
-
-                key = self.expression_key(node)
-
-                if key is not None:
-                    if key in found:
-                        found[key]["count"] += 1
-                    else:
-                        found[key] = {
-                            "expression": node,
-                            "count": 1,
-                        }
-
-            elif isinstance(node, UnaryExpression):
-                visit(node.operand)
-
-        visit(expression)
-
-        common = []
-
-        for item in found.values():
-            if item["count"] > 1:
-                common.append(item["expression"])
-
-        return common
-
-    def apply_cse(self, expression):
-        common = self.find_common_subexpressions(expression)
-
-        if not common:
-            return expression
-
-        for node in common:
-            key = self.expression_key(node)
-
-            self.changes.append(
-                "Common Subexpression Elimination: "
-                f"reused expression {key}"
-            )
-
-        return expression
-
-    # ---------------------------------------------------------
-    # OPTIMIZE ONE EXPRESSION
-    # ---------------------------------------------------------
-    def optimize_expression(self, expression):
         self.changes = []
 
-        expression = self.constant_fold(expression)
-        expression = self.apply_cse(expression)
+        folded_code = self.constant_folding(tac_code)
 
-        return expression
+        optimized_code = self.common_subexpression_elimination(
+            folded_code
+        )
 
-    # ---------------------------------------------------------
-    # PRINT OPTIMIZATION REPORT
-    # ---------------------------------------------------------
-    def print_report(self):
-        print("\n===== OPTIMIZATION REPORT =====")
+        return optimized_code
+
+    # ==================================================
+    # 1. Constant Folding
+    # ==================================================
+
+    def constant_folding(self, tac_code):
+        optimized = []
+
+        pattern = re.compile(
+            r"^(\w+)\s*=\s*(-?\d+)\s*"
+            r"([+\-*/%])\s*(-?\d+)$"
+        )
+
+        for instruction in tac_code:
+
+            match = pattern.match(
+                instruction.strip()
+            )
+
+            if not match:
+                optimized.append(instruction)
+                continue
+
+            target = match.group(1)
+            left = int(match.group(2))
+            operator = match.group(3)
+            right = int(match.group(4))
+
+            try:
+                result = self.calculate(
+                    left,
+                    operator,
+                    right
+                )
+
+                new_instruction = (
+                    f"{target} = {result}"
+                )
+
+                optimized.append(new_instruction)
+
+                self.changes.append(
+                    "Constant Folding: "
+                    f"{instruction} -> "
+                    f"{new_instruction}"
+                )
+
+            except ZeroDivisionError:
+                # Do not optimize division by zero.
+                optimized.append(instruction)
+
+        return optimized
+
+    # ==================================================
+    # Constant calculation
+    # ==================================================
+
+    def calculate(self, left, operator, right):
+
+        if operator == "+":
+            return left + right
+
+        if operator == "-":
+            return left - right
+
+        if operator == "*":
+            return left * right
+
+        if operator == "/":
+            if right == 0:
+                raise ZeroDivisionError
+
+            return left // right
+
+        if operator == "%":
+            if right == 0:
+                raise ZeroDivisionError
+
+            return left % right
+
+        raise ValueError(
+            f"Unknown operator: {operator}"
+        )
+
+    # ==================================================
+    # 2. Common Subexpression Elimination
+    # ==================================================
+
+    def common_subexpression_elimination(
+        self,
+        tac_code
+    ):
+        optimized = []
+
+        expression_table = {}
+
+        binary_pattern = re.compile(
+            r"^(\w+)\s*=\s*"
+            r"(\w+|-?\d+)\s+"
+            r"([+\-*/%])\s+"
+            r"(\w+|-?\d+)$"
+        )
+
+        for instruction in tac_code:
+
+            match = binary_pattern.match(
+                instruction.strip()
+            )
+
+            if not match:
+                optimized.append(instruction)
+                continue
+
+            target = match.group(1)
+            left = match.group(2)
+            operator = match.group(3)
+            right = match.group(4)
+
+            expression_key = (
+                left,
+                operator,
+                right
+            )
+
+            # Check exact expression.
+            if expression_key in expression_table:
+
+                old_temp = expression_table[
+                    expression_key
+                ]
+
+                new_instruction = (
+                    f"{target} = {old_temp}"
+                )
+
+                optimized.append(
+                    new_instruction
+                )
+
+                self.changes.append(
+                    "CSE: "
+                    f"{instruction} -> "
+                    f"{new_instruction}"
+                )
+
+            else:
+
+                expression_table[
+                    expression_key
+                ] = target
+
+                optimized.append(
+                    instruction
+                )
+
+        return optimized
+
+    # ==================================================
+    # Show optimization report
+    # ==================================================
+
+    def print_comparison(
+        self,
+        before,
+        after
+    ):
+        print("\n" + "=" * 55)
+        print("TAC OPTIMIZATION")
+        print("=" * 55)
+
+        print("\nBEFORE OPTIMIZATION:")
+
+        if before:
+            for index, instruction in enumerate(
+                before,
+                start=1
+            ):
+                print(
+                    f"{index:03}: {instruction}"
+                )
+        else:
+            print("(empty)")
+
+        print("\nAFTER OPTIMIZATION:")
+
+        if after:
+            for index, instruction in enumerate(
+                after,
+                start=1
+            ):
+                print(
+                    f"{index:03}: {instruction}"
+                )
+        else:
+            print("(empty)")
+
+        print("\nOPTIMIZATION CHANGES:")
 
         if not self.changes:
-            print("No optimization performed.")
-            return
+            print("No optimization applied.")
 
-        for change in self.changes:
-            print("-", change)
+        else:
+            for change in self.changes:
+                print("-", change)
 
-        print("===============================")
+        print("=" * 55)
 
+    # ==================================================
+    # Convenience method
+    # ==================================================
 
-def optimize_expression(expression):
-    optimizer = Optimizer()
-    optimized = optimizer.optimize_expression(expression)
+    def constant_fold(self, expression):
+        """
+        Compatibility helper.
 
-    optimizer.print_report()
+        If an expression contains only integer constants,
+        evaluate it.
+        """
 
-    return optimized
+        if not isinstance(expression, str):
+            return expression
+
+        match = re.match(
+            r"^\s*(-?\d+)\s*"
+            r"([+\-*/%])\s*"
+            r"(-?\d+)\s*$",
+            expression
+        )
+
+        if not match:
+            return expression
+
+        left = int(match.group(1))
+        operator = match.group(2)
+        right = int(match.group(3))
+
+        try:
+            return self.calculate(
+                left,
+                operator,
+                right
+            )
+        except ZeroDivisionError:
+            return expression
