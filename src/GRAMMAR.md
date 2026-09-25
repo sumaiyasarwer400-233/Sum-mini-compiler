@@ -1,8 +1,8 @@
-# MiniLang-233 Grammar
+# MiniLang-233-006-042 Grammar
 
 ## 1. Overview
 
-MiniLang-233 is a small programming language designed for the
+MiniLang-233-006-042 is a small programming language designed for the
 Compiler Design Lab Assignment.
 
 The grammar is written for a hand-written recursive-descent parser.
