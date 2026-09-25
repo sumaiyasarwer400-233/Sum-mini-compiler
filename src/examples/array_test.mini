@@ -1,0 +1,14 @@
+mint numbers[5];
+
+mint i;
+mint sum;
+
+i = 0;
+sum = 0;
+
+mwhile (i < 5) {
+    sum = sum + i;
+    i = i + 1;
+}
+
+numbers[0] = sum;
