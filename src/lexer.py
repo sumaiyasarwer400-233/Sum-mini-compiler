@@ -1,294 +1,474 @@
 class Token:
-    def __init__(self, kind, value, line, column):
-        self.kind = kind
+    def __init__(self, token_type, value, line, column):
+        self.token_type = token_type
         self.value = value
         self.line = line
         self.column = column
 
     def __repr__(self):
         return (
-            f"Token({self.kind}, {self.value!r}, "
-            f"{self.line}:{self.column})"
+            f"Token({self.token_type}, {self.value!r}, "
+            f"line={self.line}, column={self.column})"
         )
 
 
 class Lexer:
+    # MiniLang-233-006-042
+    # Roll = 42
+    # 42 mod 4 = 2
+    # Variant 2: Structs, Nested Functions, Static Scoping
+
     KEYWORDS = {
-        "struct": "STRUCT",
-        "function": "FUNCTION",
-        "int": "INT",
-        "float": "FLOAT",
-        "string": "STRING",
-        "bool": "BOOL",
-        "true": "TRUE",
-        "false": "FALSE",
-        "return": "RETURN",
-        "if": "IF",
-        "else": "ELSE",
-        "while": "WHILE",
-        "break": "BREAK",
-        "continue": "CONTINUE",
-        "print": "PRINT",
+        "mif": "IF",
+        "melse": "ELSE",
+        "mfunc": "FUNCTION",
+        "mreturn": "RETURN",
+        "mstruct": "STRUCT",
+        "mrecord": "RECORD",
+        "mint": "INT",
+        "mbool": "BOOL",
+        "mstring": "STRING_TYPE",
+        "mtrue": "TRUE",
+        "mfalse": "FALSE",
     }
 
-    TWO_CHAR_OPS = {
-        "==": "EQ",
-        "!=": "NE",
-        "<=": "LE",
-        ">=": "GE",
-        "&&": "AND",
-        "||": "OR",
+    TWO_CHAR_OPERATORS = {
+        "==",
+        "!=",
+        "<=",
+        ">=",
+        "&&",
+        "||",
     }
 
-    ONE_CHAR_OPS = {
-        "+": "PLUS",
-        "-": "MINUS",
-        "*": "STAR",
-        "/": "SLASH",
-        "%": "MOD",
-        "=": "ASSIGN",
-        ":": "COLON",
-        "<": "LT",
-        ">": "GT",
-        "!": "NOT",
-        ";": "SEMICOLON",
-        ",": "COMMA",
-        ".": "DOT",
-        "(": "LPAREN",
-        ")": "RPAREN",
-        "{": "LBRACE",
-        "}": "RBRACE",
+    ONE_CHAR_OPERATORS = {
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+        "=",
+        "<",
+        ">",
+        "!",
     }
 
-    def __init__(self, source):
-        self.source = source
-        self.pos = 0
+    SYMBOLS = {
+        "(", ")", "{", "}", "[", "]",
+        ";", ",", ":", ".",
+    }
+
+    def __init__(self, source_code):
+        self.source = source_code
+        self.position = 0
         self.line = 1
         self.column = 1
 
-    def current(self):
-        if self.pos >= len(self.source):
-            return None
-        return self.source[self.pos]
+        self.tokens = []
+        self.errors = []
 
+    # ---------------------------------------------------------
+    # CURRENT CHARACTER
+    # ---------------------------------------------------------
+    def current_char(self):
+        if self.position >= len(self.source):
+            return None
+
+        return self.source[self.position]
+
+    # ---------------------------------------------------------
+    # NEXT CHARACTER
+    # ---------------------------------------------------------
+    def peek_char(self):
+        next_position = self.position + 1
+
+        if next_position >= len(self.source):
+            return None
+
+        return self.source[next_position]
+
+    # ---------------------------------------------------------
+    # ADVANCE
+    # ---------------------------------------------------------
     def advance(self):
-        ch = self.current()
+        char = self.current_char()
 
-        if ch is None:
+        if char is None:
             return None
 
-        self.pos += 1
+        self.position += 1
 
-        if ch == "\n":
+        if char == "\n":
             self.line += 1
             self.column = 1
         else:
             self.column += 1
 
-        return ch
+        return char
 
-    def tokenize(self):
-        tokens = []
+    # ---------------------------------------------------------
+    # ADD TOKEN
+    # ---------------------------------------------------------
+    def add_token(self, token_type, value, line, column):
+        self.tokens.append(
+            Token(
+                token_type,
+                value,
+                line,
+                column
+            )
+        )
 
-        while self.current() is not None:
+    # ---------------------------------------------------------
+    # SKIP WHITESPACE
+    # ---------------------------------------------------------
+    def skip_whitespace(self):
+        while True:
+            char = self.current_char()
 
-            ch = self.current()
+            if char is None:
+                break
 
-            # Whitespace
-            if ch.isspace():
+            if char in " \t\r":
                 self.advance()
+
+            elif char == "\n":
+                self.advance()
+
+            else:
+                break
+
+    # ---------------------------------------------------------
+    # COMMENTS
+    # ---------------------------------------------------------
+    def skip_comment(self):
+
+        # Single-line comment
+        if (
+            self.current_char() == "/"
+            and self.peek_char() == "/"
+        ):
+            while self.current_char() is not None:
+                char = self.advance()
+
+                if char == "\n":
+                    break
+
+            return True
+
+        # Multi-line comment
+        if (
+            self.current_char() == "/"
+            and self.peek_char() == "*"
+        ):
+            start_line = self.line
+            start_column = self.column
+
+            self.advance()
+            self.advance()
+
+            while self.current_char() is not None:
+
+                if (
+                    self.current_char() == "*"
+                    and self.peek_char() == "/"
+                ):
+                    self.advance()
+                    self.advance()
+                    return True
+
+                self.advance()
+
+            self.errors.append(
+                f"Lexical Error at line {start_line}, "
+                f"column {start_column}: "
+                f"Unterminated comment."
+            )
+
+            return True
+
+        return False
+
+    # ---------------------------------------------------------
+    # IDENTIFIER / KEYWORD
+    # ---------------------------------------------------------
+    def read_identifier(self):
+        start_line = self.line
+        start_column = self.column
+
+        value = ""
+
+        while True:
+            char = self.current_char()
+
+            if char is None:
+                break
+
+            if char.isalnum() or char == "_":
+                value += self.advance()
+            else:
+                break
+
+        if value in self.KEYWORDS:
+            token_type = self.KEYWORDS[value]
+        else:
+            token_type = "IDENTIFIER"
+
+        self.add_token(
+            token_type,
+            value,
+            start_line,
+            start_column
+        )
+
+    # ---------------------------------------------------------
+    # NUMBER
+    # ---------------------------------------------------------
+    def read_number(self):
+        start_line = self.line
+        start_column = self.column
+
+        value = ""
+
+        while True:
+            char = self.current_char()
+
+            if char is None or not char.isdigit():
+                break
+
+            value += self.advance()
+
+        self.add_token(
+            "NUMBER",
+            int(value),
+            start_line,
+            start_column
+        )
+
+    # ---------------------------------------------------------
+    # STRING
+    # ---------------------------------------------------------
+    def read_string(self):
+        start_line = self.line
+        start_column = self.column
+
+        # Skip opening quote
+        self.advance()
+
+        value = ""
+
+        while True:
+            char = self.current_char()
+
+            # End of file
+            if char is None:
+                self.errors.append(
+                    f"Lexical Error at line {start_line}, "
+                    f"column {start_column}: "
+                    f"Unterminated string."
+                )
+                return
+
+            # Closing quote
+            if char == '"':
+                self.advance()
+
+                self.add_token(
+                    "STRING",
+                    value,
+                    start_line,
+                    start_column
+                )
+
+                return
+
+            # Newline inside string
+            if char == "\n":
+                self.errors.append(
+                    f"Lexical Error at line {self.line}, "
+                    f"column {self.column}: "
+                    f"String cannot contain an unescaped newline."
+                )
+
+                return
+
+            # Escape sequence
+            if char == "\\":
+                self.advance()
+
+                next_char = self.current_char()
+
+                if next_char is None:
+                    self.errors.append(
+                        f"Lexical Error at line {start_line}, "
+                        f"column {start_column}: "
+                        f"Invalid string escape."
+                    )
+
+                    return
+
+                escape_map = {
+                    "n": "\n",
+                    "t": "\t",
+                    '"': '"',
+                    "\\": "\\"
+                }
+
+                if next_char in escape_map:
+                    value += escape_map[next_char]
+                    self.advance()
+
+                else:
+                    self.errors.append(
+                        f"Lexical Error at line {self.line}, "
+                        f"column {self.column}: "
+                        f"Unknown escape sequence."
+                    )
+
+                    self.advance()
+
+            else:
+                value += self.advance()
+
+    # ---------------------------------------------------------
+    # OPERATORS
+    # ---------------------------------------------------------
+    def read_operator(self):
+        start_line = self.line
+        start_column = self.column
+
+        first = self.current_char()
+        second = self.peek_char()
+
+        # Two-character operator
+        if (
+            first is not None
+            and second is not None
+        ):
+            two_char = first + second
+
+            if two_char in self.TWO_CHAR_OPERATORS:
+                self.advance()
+                self.advance()
+
+                self.add_token(
+                    "OPERATOR",
+                    two_char,
+                    start_line,
+                    start_column
+                )
+
+                return True
+
+        # One-character operator
+        if first in self.ONE_CHAR_OPERATORS:
+            self.advance()
+
+            self.add_token(
+                "OPERATOR",
+                first,
+                start_line,
+                start_column
+            )
+
+            return True
+
+        return False
+
+    # ---------------------------------------------------------
+    # SYMBOLS
+    # ---------------------------------------------------------
+    def read_symbol(self):
+        char = self.current_char()
+
+        if char in self.SYMBOLS:
+            start_line = self.line
+            start_column = self.column
+
+            self.advance()
+
+            self.add_token(
+                "SYMBOL",
+                char,
+                start_line,
+                start_column
+            )
+
+            return True
+
+        return False
+
+    # ---------------------------------------------------------
+    # TOKENIZE
+    # ---------------------------------------------------------
+    def tokenize(self):
+
+        while self.current_char() is not None:
+
+            self.skip_whitespace()
+
+            if self.current_char() is None:
+                break
+
+            if self.skip_comment():
                 continue
 
-            # Single-line comments
-            if ch == "/" and self.pos + 1 < len(self.source):
-                if self.source[self.pos + 1] == "/":
-                    while (
-                        self.current() is not None
-                        and self.current() != "\n"
-                    ):
-                        self.advance()
-                    continue
+            char = self.current_char()
 
-            # Identifier / keyword
-            if ch.isalpha() or ch == "_":
-                tokens.append(self.identifier())
+            # Identifier or keyword
+            if char.isalpha() or char == "_":
+                self.read_identifier()
                 continue
 
             # Number
-            if ch.isdigit():
-                tokens.append(self.number())
+            if char.isdigit():
+                self.read_number()
                 continue
 
             # String
-            if ch == '"':
-                tokens.append(self.string())
+            if char == '"':
+                self.read_string()
                 continue
 
-            # Two-character operators
-            two = self.source[self.pos:self.pos + 2]
-
-            if two in self.TWO_CHAR_OPS:
-                line = self.line
-                column = self.column
-
-                self.advance()
-                self.advance()
-
-                tokens.append(
-                    Token(
-                        self.TWO_CHAR_OPS[two],
-                        two,
-                        line,
-                        column
-                    )
-                )
+            # Operator
+            if self.read_operator():
                 continue
 
-            # One-character operators
-            if ch in self.ONE_CHAR_OPS:
-                line = self.line
-                column = self.column
-
-                self.advance()
-
-                tokens.append(
-                    Token(
-                        self.ONE_CHAR_OPS[ch],
-                        ch,
-                        line,
-                        column
-                    )
-                )
+            # Symbol
+            if self.read_symbol():
                 continue
 
             # Invalid character
-            raise SyntaxError(
-                f"Unexpected character '{ch}' "
-                f"at line {self.line}, column {self.column}"
+            start_line = self.line
+            start_column = self.column
+
+            invalid_char = self.advance()
+
+            self.errors.append(
+                f"Lexical Error at line {start_line}, "
+                f"column {start_column}: "
+                f"Invalid character '{invalid_char}'."
             )
 
-        # End of file
-        tokens.append(
+        self.tokens.append(
             Token(
                 "EOF",
-                "",
+                "EOF",
                 self.line,
                 self.column
             )
         )
 
-        return tokens
+        return self.tokens
 
-    def identifier(self):
-        line = self.line
-        column = self.column
-        result = ""
+    # ---------------------------------------------------------
+    # PRINT ERRORS
+    # ---------------------------------------------------------
+    def print_errors(self):
 
-        while (
-            self.current() is not None
-            and (
-                self.current().isalnum()
-                or self.current() == "_"
-            )
-        ):
-            result += self.advance()
+        if not self.errors:
+            print("No lexical errors found.")
 
-        kind = self.KEYWORDS.get(
-            result,
-            "IDENTIFIER"
-        )
-
-        return Token(
-            kind,
-            result,
-            line,
-            column
-        )
-
-    def number(self):
-        line = self.line
-        column = self.column
-        result = ""
-
-        while (
-            self.current() is not None
-            and self.current().isdigit()
-        ):
-            result += self.advance()
-
-        # Float number
-        if self.current() == ".":
-            result += self.advance()
-
-            while (
-                self.current() is not None
-                and self.current().isdigit()
-            ):
-                result += self.advance()
-
-            return Token(
-                "FLOAT_LITERAL",
-                float(result),
-                line,
-                column
-            )
-
-        # Integer
-        return Token(
-            "INT_LITERAL",
-            int(result),
-            line,
-            column
-        )
-
-    def string(self):
-        line = self.line
-        column = self.column
-
-        self.advance()
-
-        result = ""
-
-        while (
-            self.current() is not None
-            and self.current() != '"'
-        ):
-            ch = self.advance()
-
-            if ch == "\\":
-                next_ch = self.current()
-
-                if next_ch is None:
-                    break
-
-                self.advance()
-
-                escapes = {
-                    "n": "\n",
-                    "t": "\t",
-                    '"': '"',
-                    "\\": "\\",
-                }
-
-                result += escapes.get(
-                    next_ch,
-                    next_ch
-                )
-
-            else:
-                result += ch
-
-        if self.current() != '"':
-            raise SyntaxError(
-                f"Unterminated string "
-                f"at line {line}, column {column}"
-            )
-
-        self.advance()
-
-        return Token(
-            "STRING_LITERAL",
-            result,
-            line,
-            column
-        )
+        else:
+            for error in self.errors:
+                print(error)
