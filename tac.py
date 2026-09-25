@@ -2,16 +2,11 @@ from ast import (
     Program,
     Block,
     VariableDeclaration,
-    ArrayDeclaration,
+    StructDeclaration,
     FunctionDeclaration,
     IfStatement,
-    WhileStatement,
-    SwitchStatement,
-    CaseStatement,
-    BreakStatement,
     ReturnStatement,
     Assignment,
-    ArrayAccess,
     ExpressionStatement,
     BinaryExpression,
     UnaryExpression,
@@ -20,15 +15,35 @@ from ast import (
     BooleanLiteral,
     Identifier,
     FunctionCall,
+    StructAccess,
 )
 
 
 class TACGenerator:
+    """
+    Three-Address Code generator for MiniLang Variant 2.
+
+    Supports:
+    - Variables
+    - Arithmetic expressions
+    - Boolean expressions
+    - Assignments
+    - If/else
+    - Functions
+    - Nested functions
+    - Function calls
+    - Return
+    - Struct member access
+    """
+
     def __init__(self):
-        self.instructions = []
+        self.code = []
         self.temp_count = 0
         self.label_count = 0
-        self.break_labels = []
+
+    # ==================================================
+    # Utility
+    # ==================================================
 
     def new_temp(self):
         self.temp_count += 1
@@ -39,434 +54,265 @@ class TACGenerator:
         return f"{prefix}{self.label_count}"
 
     def emit(self, instruction):
-        self.instructions.append(instruction)
+        self.code.append(instruction)
 
-    def generate(self, tree):
-        self.instructions = []
+    # ==================================================
+    # Main
+    # ==================================================
+
+    def generate(self, node):
+        self.code = []
         self.temp_count = 0
         self.label_count = 0
-        self.break_labels = []
 
-        self.visit(tree)
+        self.visit(node)
 
-        return self.instructions
+        return self.code
 
-    # -------------------------------------------------
-    # Dispatcher
-    # -------------------------------------------------
+    # ==================================================
+    # Visitor
+    # ==================================================
 
     def visit(self, node):
         if node is None:
             return None
 
-        method_name = (
-            "visit_" +
-            node.__class__.__name__.lower()
-        )
+        if isinstance(node, Program):
+            return self.visit_program(node)
 
-        method = getattr(
-            self,
-            method_name,
-            self.visit_unknown
-        )
+        if isinstance(node, Block):
+            return self.visit_block(node)
 
-        return method(node)
+        if isinstance(node, StructDeclaration):
+            return self.visit_struct_declaration(node)
 
-    def visit_unknown(self, node):
-        self.emit(
-            f"# Unsupported node: "
-            f"{node.__class__.__name__}"
-        )
+        if isinstance(node, VariableDeclaration):
+            return self.visit_variable_declaration(node)
+
+        if isinstance(node, FunctionDeclaration):
+            return self.visit_function_declaration(node)
+
+        if isinstance(node, IfStatement):
+            return self.visit_if(node)
+
+        if isinstance(node, ReturnStatement):
+            return self.visit_return(node)
+
+        if isinstance(node, Assignment):
+            return self.visit_assignment(node)
+
+        if isinstance(node, ExpressionStatement):
+            return self.visit(node.expression)
+
+        if isinstance(node, BinaryExpression):
+            return self.visit_binary(node)
+
+        if isinstance(node, UnaryExpression):
+            return self.visit_unary(node)
+
+        if isinstance(node, NumberLiteral):
+            return str(node.value)
+
+        if isinstance(node, StringLiteral):
+            return f'"{node.value}"'
+
+        if isinstance(node, BooleanLiteral):
+            return "1" if node.value else "0"
+
+        if isinstance(node, Identifier):
+            return node.name
+
+        if isinstance(node, StructAccess):
+            return f"{node.object_name}.{node.field_name}"
+
+        if isinstance(node, FunctionCall):
+            return self.visit_function_call(node)
+
         return None
 
-    # -------------------------------------------------
+    # ==================================================
     # Program
-    # -------------------------------------------------
+    # ==================================================
 
     def visit_program(self, node):
         for declaration in node.declarations:
             self.visit(declaration)
 
-    # -------------------------------------------------
+    # ==================================================
+    # Struct
+    # ==================================================
+
+    def visit_struct_declaration(self, node):
+        # Struct declarations do not need executable TAC.
+        self.emit(f"# struct {node.name}")
+
+        for field in node.fields:
+            self.emit(
+                f"# field {field.field_type} {field.name}"
+            )
+
+        self.emit(f"# end struct {node.name}")
+
+    # ==================================================
+    # Variable declaration
+    # ==================================================
+
+    def visit_variable_declaration(self, node):
+        # Declaration itself does not need executable TAC.
+        self.emit(
+            f"# declare {node.var_type} {node.name}"
+        )
+
+    # ==================================================
     # Block
-    # -------------------------------------------------
+    # ==================================================
 
     def visit_block(self, node):
         for statement in node.statements:
             self.visit(statement)
 
-    # -------------------------------------------------
-    # Variable declaration
-    # -------------------------------------------------
-
-    def visit_variabledeclaration(self, node):
-        self.emit(
-            f"DECLARE {node.name} {node.var_type}"
-        )
-
-    # -------------------------------------------------
-    # Array declaration
-    # -------------------------------------------------
-
-    def visit_arraydeclaration(self, node):
-        self.emit(
-            f"DECLARE_ARRAY "
-            f"{node.name} "
-            f"{node.element_type} "
-            f"{node.size}"
-        )
-
-    # -------------------------------------------------
+    # ==================================================
     # Function declaration
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_functiondeclaration(self, node):
-        self.emit(
-            f"FUNCTION {node.name}"
-        )
+    def visit_function_declaration(self, node):
+        self.emit(f"label FUNC_{node.name}")
 
-        for parameter in node.parameters:
+        # Parameters
+        for index, parameter in enumerate(node.parameters):
             self.emit(
-                f"PARAMETER "
-                f"{parameter.name} "
-                f"{parameter.param_type}"
+                f"# param {index + 1} "
+                f"{parameter.param_type} "
+                f"{parameter.name}"
             )
 
         self.visit(node.body)
 
-        self.emit(
-            f"END_FUNCTION {node.name}"
-        )
+        self.emit(f"return 0")
+        self.emit(f"label END_{node.name}")
 
-    # -------------------------------------------------
-    # If
-    # -------------------------------------------------
+    # ==================================================
+    # If / Else
+    # ==================================================
 
-    def visit_ifstatement(self, node):
-        false_label = self.new_label("Lfalse")
-
+    def visit_if(self, node):
         condition = self.visit(node.condition)
 
+        else_label = self.new_label("ELSE")
+        end_label = self.new_label("ENDIF")
+
         self.emit(
-            f"IF_FALSE {condition} GOTO {false_label}"
+            f"ifFalse {condition} goto {else_label}"
         )
 
         self.visit(node.then_branch)
 
         if node.else_branch is not None:
-            end_label = self.new_label("Lend")
+            self.emit(f"goto {end_label}")
 
-            self.emit(
-                f"GOTO {end_label}"
-            )
-
-            self.emit(
-                f"LABEL {false_label}"
-            )
+            self.emit(f"label {else_label}")
 
             self.visit(node.else_branch)
 
-            self.emit(
-                f"LABEL {end_label}"
-            )
+            self.emit(f"label {end_label}")
 
         else:
-            self.emit(
-                f"LABEL {false_label}"
-            )
+            self.emit(f"label {else_label}")
 
-    # -------------------------------------------------
-    # While
-    # -------------------------------------------------
-
-    def visit_whilestatement(self, node):
-        start_label = self.new_label("Lwhile")
-        end_label = self.new_label("LwhileEnd")
-
-        self.emit(
-            f"LABEL {start_label}"
-        )
-
-        condition = self.visit(node.condition)
-
-        self.emit(
-            f"IF_FALSE {condition} GOTO {end_label}"
-        )
-
-        self.break_labels.append(end_label)
-
-        self.visit(node.body)
-
-        self.break_labels.pop()
-
-        self.emit(
-            f"GOTO {start_label}"
-        )
-
-        self.emit(
-            f"LABEL {end_label}"
-        )
-
-    # -------------------------------------------------
-    # Switch
-    # -------------------------------------------------
-
-    def visit_switchstatement(self, node):
-        switch_value = self.visit(
-            node.expression
-        )
-
-        end_label = self.new_label(
-            "LswitchEnd"
-        )
-
-        case_labels = []
-
-        for _ in node.cases:
-            case_labels.append(
-                self.new_label("Lcase")
-            )
-
-        default_label = None
-
-        if node.default_case is not None:
-            default_label = self.new_label(
-                "Ldefault"
-            )
-
-        # Generate comparisons
-        for index, case in enumerate(node.cases):
-            temp = self.new_temp()
-
-            self.emit(
-                f"{temp} = "
-                f"{switch_value} == "
-                f"{case.value}"
-            )
-
-            self.emit(
-                f"IF {temp} GOTO "
-                f"{case_labels[index]}"
-            )
-
-        if default_label is not None:
-            self.emit(
-                f"GOTO {default_label}"
-            )
-        else:
-            self.emit(
-                f"GOTO {end_label}"
-            )
-
-        # Generate cases
-        self.break_labels.append(end_label)
-
-        for index, case in enumerate(node.cases):
-            self.emit(
-                f"LABEL {case_labels[index]}"
-            )
-
-            self.visit_case_statements(
-                case
-            )
-
-        # Default
-        if node.default_case is not None:
-            self.emit(
-                f"LABEL {default_label}"
-            )
-
-            self.visit(
-                node.default_case
-            )
-
-        self.break_labels.pop()
-
-        self.emit(
-            f"LABEL {end_label}"
-        )
-
-    def visit_case_statements(self, case):
-        for statement in case.statements:
-            self.visit(statement)
-
-    # -------------------------------------------------
-    # Break
-    # -------------------------------------------------
-
-    def visit_breakstatement(self, node):
-        if self.break_labels:
-            self.emit(
-                f"GOTO {self.break_labels[-1]}"
-            )
-
-    # -------------------------------------------------
+    # ==================================================
     # Return
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_returnstatement(self, node):
+    def visit_return(self, node):
         if node.expression is None:
-            self.emit("RETURN")
+            self.emit("return")
             return
 
-        value = self.visit(
-            node.expression
-        )
+        value = self.visit(node.expression)
 
-        self.emit(
-            f"RETURN {value}"
-        )
+        self.emit(f"return {value}")
 
-    # -------------------------------------------------
+    # ==================================================
     # Assignment
-    # -------------------------------------------------
+    # ==================================================
 
     def visit_assignment(self, node):
-        value = self.visit(
-            node.expression
-        )
+        value = self.visit(node.expression)
 
-        if isinstance(
-            node.target,
-            ArrayAccess
-        ):
-            index = self.visit(
-                node.target.index
-            )
+        target = self.visit(node.target)
 
-            self.emit(
-                f"STORE_ARRAY "
-                f"{node.target.name} "
-                f"{index} "
-                f"{value}"
-            )
+        self.emit(f"{target} = {value}")
 
-        else:
-            self.emit(
-                f"{node.target.name} = {value}"
-            )
+        return target
 
-    # -------------------------------------------------
-    # Expression statement
-    # -------------------------------------------------
-
-    def visit_expressionstatement(self, node):
-        return self.visit(
-            node.expression
-        )
-
-    # -------------------------------------------------
-    # Identifier
-    # -------------------------------------------------
-
-    def visit_identifier(self, node):
-        return node.name
-
-    # -------------------------------------------------
-    # Array access
-    # -------------------------------------------------
-
-    def visit_arrayaccess(self, node):
-        index = self.visit(
-            node.index
-        )
-
-        temp = self.new_temp()
-
-        self.emit(
-            f"{temp} = "
-            f"LOAD_ARRAY "
-            f"{node.name} "
-            f"{index}"
-        )
-
-        return temp
-
-    # -------------------------------------------------
-    # Number
-    # -------------------------------------------------
-
-    def visit_numberliteral(self, node):
-        return str(node.value)
-
-    # -------------------------------------------------
-    # String
-    # -------------------------------------------------
-
-    def visit_stringliteral(self, node):
-        return f'"{node.value}"'
-
-    # -------------------------------------------------
-    # Boolean
-    # -------------------------------------------------
-
-    def visit_booleanliteral(self, node):
-        if node.value:
-            return "1"
-
-        return "0"
-
-    # -------------------------------------------------
+    # ==================================================
     # Binary expression
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_binaryexpression(self, node):
+    def visit_binary(self, node):
         left = self.visit(node.left)
         right = self.visit(node.right)
 
         temp = self.new_temp()
 
         self.emit(
-            f"{temp} = "
-            f"{left} "
-            f"{node.operator} "
-            f"{right}"
+            f"{temp} = {left} {node.operator} {right}"
         )
 
         return temp
 
-    # -------------------------------------------------
+    # ==================================================
     # Unary expression
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_unaryexpression(self, node):
-        operand = self.visit(
-            node.operand
-        )
+    def visit_unary(self, node):
+        operand = self.visit(node.operand)
 
         temp = self.new_temp()
 
         self.emit(
-            f"{temp} = "
-            f"{node.operator}"
-            f"{operand}"
+            f"{temp} = {node.operator}{operand}"
         )
 
         return temp
 
-    # -------------------------------------------------
+    # ==================================================
     # Function call
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_functioncall(self, node):
+    def visit_function_call(self, node):
         arguments = []
 
         for argument in node.arguments:
-            arguments.append(
-                self.visit(argument)
-            )
+            value = self.visit(argument)
+            arguments.append(value)
 
-        for argument in arguments:
-            self.emit(
-                f"PARAM {argument}"
-            )
+            self.emit(f"param {value}")
 
         temp = self.new_temp()
 
         self.emit(
-            f"{temp} = CALL "
-            f"{node.name} "
+            f"{temp} = call {node.name}, "
             f"{len(arguments)}"
         )
 
         return temp
+
+    # ==================================================
+    # Formatting
+    # ==================================================
+
+    def print_code(self, code=None):
+        if code is None:
+            code = self.code
+
+        print("\nThree-Address Code (TAC):")
+
+        if not code:
+            print("(empty)")
+            return
+
+        for index, instruction in enumerate(code, start=1):
+            print(
+                f"{index:03}: {instruction}"
+            )
