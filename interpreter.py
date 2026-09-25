@@ -1,170 +1,279 @@
-class Interpreter:
-    def __init__(self):
+class StackMachineInterpreter:
+    """
+    Small interpreter for MiniLang stack-machine code.
+    """
+
+    def __init__(self, instructions):
+        self.instructions = instructions
         self.stack = []
-        self.memory = {}
+        self.variables = {}
         self.labels = {}
-        self.pc = 0
+        self.ip = 0
+        self.return_value = None
 
-    def prepare_labels(self, code):
+        self.build_labels()
+
+    # ---------------------------------------------------------
+    # BUILD LABEL TABLE
+    # ---------------------------------------------------------
+    def build_labels(self):
         self.labels = {}
 
-        for index, instruction in enumerate(code):
-            parts = instruction.split()
+        for index, instruction in enumerate(self.instructions):
+            instruction = instruction.strip()
 
-            if parts and parts[0] == "LABEL":
-                self.labels[parts[1]] = index
+            if instruction.endswith(":"):
+                label = instruction[:-1]
+                self.labels[label] = index
 
+    # ---------------------------------------------------------
+    # GET VALUE
+    # ---------------------------------------------------------
     def get_value(self, value):
-        if value in self.memory:
-            return self.memory[value]
+        value = value.strip()
 
-        try:
+        if value.isdigit():
             return int(value)
-        except ValueError:
+
+        if value.startswith("-") and value[1:].isdigit():
+            return int(value)
+
+        if value == "true" or value == "True":
+            return 1
+
+        if value == "false" or value == "False":
             return 0
 
-    def run(self, code):
+        if value.startswith('"') and value.endswith('"'):
+            return value[1:-1]
+
+        return self.variables.get(value, 0)
+
+    # ---------------------------------------------------------
+    # RUN PROGRAM
+    # ---------------------------------------------------------
+    def run(self):
+        self.ip = 0
         self.stack = []
-        self.memory = {}
-        self.pc = 0
+        self.return_value = None
 
-        self.prepare_labels(code)
+        while self.ip < len(self.instructions):
 
-        while self.pc < len(code):
-            instruction = code[self.pc]
-            parts = instruction.split()
+            instruction = self.instructions[self.ip].strip()
 
-            if not parts:
-                self.pc += 1
+            # Empty instruction
+            if not instruction:
+                self.ip += 1
                 continue
 
+            # Label
+            if instruction.endswith(":"):
+                self.ip += 1
+                continue
+
+            parts = instruction.split()
             operation = parts[0]
 
+            # -------------------------------------------------
+            # PUSH
+            # -------------------------------------------------
             if operation == "PUSH":
-                value = self.get_value(parts[1])
+                value_text = instruction[5:].strip()
+                self.stack.append(self.get_value(value_text))
+
+            # -------------------------------------------------
+            # LOAD
+            # -------------------------------------------------
+            elif operation == "LOAD":
+                variable = parts[1]
+                value = self.variables.get(variable, 0)
                 self.stack.append(value)
 
+            # -------------------------------------------------
+            # STORE
+            # -------------------------------------------------
             elif operation == "STORE":
-                if self.stack:
-                    self.memory[parts[1]] = self.stack.pop()
+                variable = parts[1]
 
+                if not self.stack:
+                    raise RuntimeError(
+                        f"Stack underflow while storing '{variable}'."
+                    )
+
+                value = self.stack.pop()
+                self.variables[variable] = value
+
+            # -------------------------------------------------
+            # ADD
+            # -------------------------------------------------
             elif operation == "ADD":
                 right = self.stack.pop()
                 left = self.stack.pop()
                 self.stack.append(left + right)
 
+            # -------------------------------------------------
+            # SUB
+            # -------------------------------------------------
             elif operation == "SUB":
                 right = self.stack.pop()
                 left = self.stack.pop()
                 self.stack.append(left - right)
 
+            # -------------------------------------------------
+            # MUL
+            # -------------------------------------------------
             elif operation == "MUL":
                 right = self.stack.pop()
                 left = self.stack.pop()
                 self.stack.append(left * right)
 
+            # -------------------------------------------------
+            # DIV
+            # -------------------------------------------------
             elif operation == "DIV":
                 right = self.stack.pop()
                 left = self.stack.pop()
 
                 if right == 0:
                     raise RuntimeError(
-                        "Division by zero"
+                        "Division by zero."
                     )
 
                 self.stack.append(left // right)
 
+            # -------------------------------------------------
+            # MOD
+            # -------------------------------------------------
             elif operation == "MOD":
                 right = self.stack.pop()
                 left = self.stack.pop()
 
                 if right == 0:
                     raise RuntimeError(
-                        "Modulo by zero"
+                        "Modulo by zero."
                     )
 
                 self.stack.append(left % right)
 
+            # -------------------------------------------------
+            # COMPARISON
+            # -------------------------------------------------
             elif operation == "CMP_EQ":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left == right else 0
-                )
+                self.stack.append(int(left == right))
 
             elif operation == "CMP_NE":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left != right else 0
-                )
+                self.stack.append(int(left != right))
 
             elif operation == "CMP_LT":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left < right else 0
-                )
+                self.stack.append(int(left < right))
 
             elif operation == "CMP_GT":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left > right else 0
-                )
+                self.stack.append(int(left > right))
 
             elif operation == "CMP_LE":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left <= right else 0
-                )
+                self.stack.append(int(left <= right))
 
             elif operation == "CMP_GE":
                 right = self.stack.pop()
                 left = self.stack.pop()
-                self.stack.append(
-                    1 if left >= right else 0
-                )
+                self.stack.append(int(left >= right))
 
-            elif operation == "JUMP":
-                self.pc = self.labels[parts[1]]
-                continue
+            # -------------------------------------------------
+            # LOGICAL OPERATIONS
+            # -------------------------------------------------
+            elif operation == "AND":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(int(bool(left) and bool(right)))
 
-            elif operation == "JUMP_IF_FALSE":
-                value = self.stack.pop()
+            elif operation == "OR":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(int(bool(left) or bool(right)))
 
-                if value == 0:
-                    self.pc = self.labels[parts[1]]
+            # -------------------------------------------------
+            # CONDITIONAL JUMP
+            # -------------------------------------------------
+            elif operation == "JMP_IF_TRUE":
+                label = parts[1]
+
+                if not self.stack:
+                    raise RuntimeError(
+                        "Stack underflow during conditional jump."
+                    )
+
+                condition = self.stack.pop()
+
+                if condition:
+                    if label not in self.labels:
+                        raise RuntimeError(
+                            f"Unknown label '{label}'."
+                        )
+
+                    self.ip = self.labels[label]
                     continue
 
+            # -------------------------------------------------
+            # UNCONDITIONAL JUMP
+            # -------------------------------------------------
+            elif operation == "JMP":
+                label = parts[1]
+
+                if label not in self.labels:
+                    raise RuntimeError(
+                        f"Unknown label '{label}'."
+                    )
+
+                self.ip = self.labels[label]
+                continue
+
+            # -------------------------------------------------
+            # RETURN
+            # -------------------------------------------------
             elif operation == "RETURN":
-                return self.get_value(parts[1])
+                if self.stack:
+                    self.return_value = self.stack.pop()
+                else:
+                    self.return_value = None
 
-            elif operation == "LABEL":
-                pass
+                return self.return_value
 
-            elif operation == "FUNCTION":
-                pass
+            # -------------------------------------------------
+            # UNKNOWN INSTRUCTION
+            # -------------------------------------------------
+            else:
+                raise RuntimeError(
+                    f"Unknown instruction: {instruction}"
+                )
 
-            elif operation == "END_FUNCTION":
-                pass
+            self.ip += 1
 
-            elif operation == "PARAM":
-                pass
+        return self.return_value
 
-            elif operation == "CALL":
-                pass
+    # ---------------------------------------------------------
+    # PRINT FINAL STATE
+    # ---------------------------------------------------------
+    def print_state(self):
+        print("\n===== INTERPRETER RESULT =====")
 
-            elif operation == "BREAK":
-                pass
+        print("Variables:")
 
-            elif operation == "CONTINUE":
-                pass
+        if not self.variables:
+            print("  No variables.")
+        else:
+            for name, value in self.variables.items():
+                print(f"  {name} = {value}")
 
-            self.pc += 1
+        print(f"Return value: {self.return_value}")
 
-        if self.stack:
-            return self.stack[-1]
-
-        return None
+        print("==============================")
