@@ -1,7 +1,6 @@
 class TACGenerator:
-
     def __init__(self):
-        self.code = []
+        self.instructions = []
         self.temp_count = 0
         self.label_count = 0
 
@@ -13,334 +12,239 @@ class TACGenerator:
         self.label_count += 1
         return f"L{self.label_count}"
 
-    def emit(self, *instruction):
-        self.code.append(instruction)
+    def emit(self, instruction):
+        self.instructions.append(instruction)
 
     def generate(self, program):
-        for declaration in program.declarations:
+        self.instructions = []
+        self.temp_count = 0
+        self.label_count = 0
 
-            if declaration.__class__.__name__ == "FunctionDecl":
-                self.function(declaration)
+        for statement in program["statements"]:
+            self.generate_statement(statement)
 
-        return self.code
+        return self.instructions
 
-    # ---------------- FUNCTION ----------------
+    def generate_statement(self, statement):
+        node_type = statement["type"]
 
-    def function(self, node):
+        if node_type == "Function":
+            self.emit(f"FUNCTION {statement['name']}")
 
-        self.emit("FUNC", node.name)
-
-        self.block(node.body)
-
-        self.emit("END_FUNC", node.name)
-
-    # ---------------- BLOCK ----------------
-
-    def block(self, node):
-
-        for statement in node.statements:
-            self.statement(statement)
-
-    # ---------------- STATEMENTS ----------------
-
-    def statement(self, node):
-
-        name = node.__class__.__name__
-
-        if name == "VarDecl":
-
-            if node.initializer is not None:
-                value = self.expression(
-                    node.initializer
-                )
-
-                self.emit(
-                    "MOV",
-                    node.name,
-                    value
-                )
-
-        elif name == "Assign":
-
-            value = self.expression(
-                node.value
+            self.generate_statement(
+                statement["body"]
             )
 
-            target = self.target(
-                node.target
+            self.emit("END_FUNCTION")
+            return
+
+        if node_type == "Block":
+            for item in statement["statements"]:
+                self.generate_statement(item)
+            return
+
+        if node_type == "ExpressionStatement":
+            self.generate_expression(
+                statement["expression"]
+            )
+            return
+
+        if node_type == "Return":
+            value = self.generate_expression(
+                statement["value"]
+            )
+
+            self.emit(f"RETURN {value}")
+            return
+
+        if node_type == "If":
+            condition = self.generate_expression(
+                statement["condition"]
+            )
+
+            else_label = self.new_label()
+            end_label = self.new_label()
+
+            self.emit(
+                f"IF_FALSE {condition} GOTO {else_label}"
+            )
+
+            self.generate_statement(
+                statement["then"]
             )
 
             self.emit(
-                "MOV",
-                target,
-                value
-            )
-
-        elif name == "PrintStmt":
-
-            value = self.expression(
-                node.value
+                f"GOTO {end_label}"
             )
 
             self.emit(
-                "PRINT",
-                value
+                f"LABEL {else_label}"
             )
 
-        elif name == "ReturnStmt":
+            if statement["else"] is not None:
+                self.generate_statement(
+                    statement["else"]
+                )
 
-            if node.value is None:
-                self.emit("RETURN")
+            self.emit(
+                f"LABEL {end_label}"
+            )
+            return
 
-            else:
-                value = self.expression(
-                    node.value
+        if node_type == "While":
+            start_label = self.new_label()
+            end_label = self.new_label()
+
+            self.emit(
+                f"LABEL {start_label}"
+            )
+
+            condition = self.generate_expression(
+                statement["condition"]
+            )
+
+            self.emit(
+                f"IF_FALSE {condition} GOTO {end_label}"
+            )
+
+            self.generate_statement(
+                statement["body"]
+            )
+
+            self.emit(
+                f"GOTO {start_label}"
+            )
+
+            self.emit(
+                f"LABEL {end_label}"
+            )
+            return
+
+        if node_type == "For":
+            if statement["initialization"]:
+                self.generate_expression(
+                    statement["initialization"]
+                )
+
+            start_label = self.new_label()
+            end_label = self.new_label()
+
+            self.emit(
+                f"LABEL {start_label}"
+            )
+
+            if statement["condition"]:
+                condition = self.generate_expression(
+                    statement["condition"]
                 )
 
                 self.emit(
-                    "RETURN",
-                    value
+                    f"IF_FALSE {condition} "
+                    f"GOTO {end_label}"
                 )
 
-        elif name == "ExprStmt":
-
-            self.expression(
-                node.expression
+            self.generate_statement(
+                statement["body"]
             )
 
-        elif name == "IfStmt":
+            if statement["update"]:
+                self.generate_expression(
+                    statement["update"]
+                )
 
-            self.if_statement(node)
+            self.emit(
+                f"GOTO {start_label}"
+            )
 
-        elif name == "WhileStmt":
+            self.emit(
+                f"LABEL {end_label}"
+            )
+            return
 
-            self.while_statement(node)
-
-        elif name == "BreakStmt":
-
+        if node_type == "Break":
             self.emit("BREAK")
+            return
 
-        elif name == "ContinueStmt":
-
+        if node_type == "Continue":
             self.emit("CONTINUE")
+            return
 
-        elif name == "FunctionDecl":
+    def generate_expression(self, expression):
+        node_type = expression["type"]
+
+        if node_type == "Number":
+            return str(expression["value"])
+
+        if node_type == "Boolean":
+            return "1" if expression["value"] else "0"
+
+        if node_type == "Identifier":
+            return expression["name"]
+
+        if node_type == "Assignment":
+            value = self.generate_expression(
+                expression["right"]
+            )
+
+            name = expression["left"]["name"]
 
             self.emit(
-                "NESTED_FUNC",
-                node.name
+                f"{name} = {value}"
             )
 
-    # ---------------- IF ----------------
+            return name
 
-    def if_statement(self, node):
-
-        else_label = self.new_label()
-        end_label = self.new_label()
-
-        condition = self.expression(
-            node.condition
-        )
-
-        self.emit(
-            "JZ",
-            condition,
-            else_label
-        )
-
-        self.block(
-            node.then_branch
-        )
-
-        self.emit(
-            "JMP",
-            end_label
-        )
-
-        self.emit(
-            "LABEL",
-            else_label
-        )
-
-        if node.else_branch:
-
-            self.block(
-                node.else_branch
+        if node_type == "Binary":
+            left = self.generate_expression(
+                expression["left"]
             )
 
-        self.emit(
-            "LABEL",
-            end_label
-        )
-
-    # ---------------- WHILE ----------------
-
-    def while_statement(self, node):
-
-        start_label = self.new_label()
-        end_label = self.new_label()
-
-        self.emit(
-            "LABEL",
-            start_label
-        )
-
-        condition = self.expression(
-            node.condition
-        )
-
-        self.emit(
-            "JZ",
-            condition,
-            end_label
-        )
-
-        self.block(node.body)
-
-        self.emit(
-            "JMP",
-            start_label
-        )
-
-        self.emit(
-            "LABEL",
-            end_label
-        )
-
-    # ---------------- EXPRESSIONS ----------------
-
-    def expression(self, node):
-
-        name = node.__class__.__name__
-
-        if name == "Literal":
-            return self.literal(node.value)
-
-        if name == "Variable":
-            return node.name
-
-        if name == "Binary":
-
-            left = self.expression(
-                node.left
-            )
-
-            right = self.expression(
-                node.right
+            right = self.generate_expression(
+                expression["right"]
             )
 
             temp = self.new_temp()
 
             self.emit(
-                "BIN",
-                temp,
-                node.operator,
-                left,
-                right
+                f"{temp} = {left} "
+                f"{expression['operator']} {right}"
             )
 
             return temp
 
-        if name == "Unary":
-
-            operand = self.expression(
-                node.operand
+        if node_type == "Unary":
+            operand = self.generate_expression(
+                expression["operand"]
             )
 
             temp = self.new_temp()
 
             self.emit(
-                "UNARY",
-                temp,
-                node.operator,
-                operand
+                f"{temp} = "
+                f"{expression['operator']}{operand}"
             )
 
             return temp
 
-        if name == "Call":
+        if node_type == "Call":
+            arguments = []
 
-            return self.call(node)
+            for argument in expression["arguments"]:
+                arguments.append(
+                    self.generate_expression(argument)
+                )
 
-        if name == "Member":
+            for argument in arguments:
+                self.emit(f"PARAM {argument}")
 
-            obj = self.expression(
-                node.object
+            temp = self.new_temp()
+
+            self.emit(
+                f"{temp} = CALL "
+                f"{expression['name']}, "
+                f"{len(arguments)}"
             )
 
-            return f"{obj}.{node.name}"
+            return temp
 
-        return None
-
-    # ---------------- FUNCTION CALL ----------------
-
-    def call(self, node):
-
-        args = []
-
-        for argument in node.arguments:
-
-            args.append(
-                self.expression(argument)
-            )
-
-        temp = self.new_temp()
-
-        function_name = getattr(
-            node.callee,
-            "name",
-            str(node.callee)
-        )
-
-        self.emit(
-            "CALL",
-            temp,
-            function_name,
-            len(args),
-            *args
-        )
-
-        return temp
-
-    # ---------------- ASSIGNMENT TARGET ----------------
-
-    def target(self, node):
-
-        name = node.__class__.__name__
-
-        if name == "Variable":
-            return node.name
-
-        if name == "Member":
-
-            obj = self.expression(
-                node.object
-            )
-
-            return f"{obj}.{node.name}"
-
-        return None
-
-    # ---------------- LITERAL ----------------
-
-    def literal(self, value):
-
-        if isinstance(value, str):
-            return repr(value)
-
-        if isinstance(value, bool):
-
-            return (
-                "true"
-                if value
-                else "false"
-            )
-
-        return str(value)
-
-
-def generate_tac(program):
-
-    generator = TACGenerator()
-
-    return generator.generate(program)
+        return ""
