@@ -1,97 +1,217 @@
-MINILANG-233 TEST CASES
-=======================
+MINILANG VARIANT 2 TEST CASES
+=============================
 
-VALID TEST 1: Variable Declaration
------------------------------------
-mint x;
-x = 10;
+Student ID: 233-006-042
+Roll: 42
+Variant: 2
 
-
-VALID TEST 2: Array Declaration
---------------------------------
-mint numbers[5];
-numbers[0] = 10;
-numbers[1] = 20;
+Features:
+1. Structs / Records
+2. Nested Functions
+3. Static Scoping
 
 
-VALID TEST 3: While Loop
-------------------------
-mint i;
-i = 0;
-
-mwhile (i < 5) {
-    i = i + 1;
-}
-
-
-VALID TEST 4: Switch Statement
-------------------------------
-mint choice;
-choice = 2;
-
-mswitch (choice) {
-
-    mcase 1:
-        choice = 10;
-        mbreak;
-
-    mcase 2:
-        choice = 20;
-        mbreak;
-
-    mdefault:
-        choice = 0;
-        mbreak;
-}
-
-
-VALID TEST 5: Expression
-------------------------
-mint x;
-mint y;
-
-x = 5 + 3 * 2;
-y = x + 10;
-
-
-SEMANTIC ERROR 1: Undeclared Variable
---------------------------------------
-mint x;
-x = y;
-
-
-SEMANTIC ERROR 2: Duplicate Declaration
 ----------------------------------------
-mint x;
-mint x;
+TEST 1: STRUCT DECLARATION
+----------------------------------------
+
+mstruct Student {
+    mint id;
+    mstring name;
+}
 
 
-SEMANTIC ERROR 3: Array Index Out of Bounds
---------------------------------------------
-mint numbers[5];
-numbers[10] = 20;
+----------------------------------------
+TEST 2: STRUCT ACCESS
+----------------------------------------
+
+mstruct Student {
+    mint id;
+    mstring name;
+}
+
+mint age;
 
 
-SEMANTIC ERROR 4: Negative Array Index
----------------------------------------
-mint numbers[5];
-numbers[-1] = 20;
+----------------------------------------
+TEST 3: FUNCTION
+----------------------------------------
+
+mfunc add(mint a, mint b) {
+    mint result;
+    result = a + b;
+    mreturn result;
+}
 
 
-SEMANTIC ERROR 5: Invalid Break
---------------------------------
-mint x;
-x = 10;
-mbreak;
+----------------------------------------
+TEST 4: NESTED FUNCTION
+----------------------------------------
+
+mfunc outer(mint x) {
+
+    mfunc inner(mint y) {
+        mint result;
+        result = y + x;
+        mreturn result;
+    }
+
+    mreturn inner(5);
+}
 
 
-LEXICAL ERROR TEST
-------------------
-mint x;
-x = 10 @ 5;
+----------------------------------------
+TEST 5: STATIC SCOPING
+----------------------------------------
+
+mfunc calculate(mint x) {
+
+    mfunc nested(mint y) {
+        mint result;
+        result = x + y;
+        mreturn result;
+    }
+
+    mreturn nested(10);
+}
 
 
+----------------------------------------
+TEST 6: IF / ELSE
+----------------------------------------
+
+mfunc check(mint x) {
+
+    mif (x > 10) {
+        mint result;
+    }
+    melse {
+        mint result;
+    }
+
+    mreturn x;
+}
+
+
+----------------------------------------
+TEST 7: ARITHMETIC EXPRESSION
+----------------------------------------
+
+mfunc calculation() {
+
+    mint x;
+
+    x = 10 + 20 * 2;
+
+    mreturn x;
+}
+
+
+----------------------------------------
+TEST 8: BOOLEAN EXPRESSION
+----------------------------------------
+
+mfunc compare(mint x) {
+
+    mif (x > 5) {
+        mreturn 1;
+    }
+    melse {
+        mreturn 0;
+    }
+}
+
+
+----------------------------------------
+SEMANTIC ERROR TEST 1
+----------------------------------------
+
+mfunc test() {
+
+    mint x;
+
+    y = 10;
+
+    mreturn x;
+}
+
+Expected:
+Undeclared identifier 'y'.
+
+
+----------------------------------------
+SEMANTIC ERROR TEST 2
+----------------------------------------
+
+mfunc test() {
+
+    mint x;
+    mbool flag;
+
+    x = flag;
+
+    mreturn x;
+}
+
+Expected:
+Type mismatch in assignment.
+
+
+----------------------------------------
+SEMANTIC ERROR TEST 3
+----------------------------------------
+
+mstruct Student {
+    mint id;
+}
+
+mfunc test() {
+
+    Student student;
+
+    student.age = 10;
+
+    mreturn 0;
+}
+
+Expected:
+Struct 'Student' has no field 'age'.
+
+
+----------------------------------------
+SEMANTIC ERROR TEST 4
+----------------------------------------
+
+mfunc test(mint x) {
+
+    mreturn x;
+}
+
+mfunc main() {
+
+    mint result;
+
+    result = test();
+
+    mreturn result;
+}
+
+Expected:
+Invalid function call because one argument is missing.
+
+
+----------------------------------------
 SYNTAX ERROR TEST
------------------
-mint x
-x = 10;
+----------------------------------------
+
+mfunc test() {
+
+    mint x
+
+    x = 10;
+
+    mreturn x;
+}
+
+Expected:
+Syntax error because ';' is missing.
