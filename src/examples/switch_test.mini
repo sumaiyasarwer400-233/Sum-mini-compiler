@@ -1,0 +1,22 @@
+mint choice;
+
+choice = 2;
+
+mswitch (choice) {
+
+    mcase 1:
+        choice = 10;
+        mbreak;
+
+    mcase 2:
+        choice = 20;
+        mbreak;
+
+    mcase 3:
+        choice = 30;
+        mbreak;
+
+    mdefault:
+        choice = 0;
+        mbreak;
+}
