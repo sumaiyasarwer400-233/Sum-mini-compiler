@@ -1,28 +1,38 @@
-from lexer import tokenize
-from parser import Parser
+# MiniLang-233 Compiler
 
+## Compiler Design Lab Assignment
 
-def main():
-    print("MiniLang 233")
-    print("----------------")
+**Student Roll:** 233  
+**Language:** MiniLang  
+**Personalized Variant:** 1  
+**Implementation:** Python  
+**Parser Type:** Hand-written Recursive Descent Parser
 
-    code = input("Enter MiniLang code: ")
+---
 
-    tokens = tokenize(code)
+## 1. Project Description
 
-    print("\nTokens:")
-    for token in tokens:
-        print(token)
+MiniLang-233 is a small compiler developed for the Compiler Design Lab assignment.
 
-    parser = Parser(tokens)
+The compiler demonstrates the major phases of a compiler:
 
-    try:
-        tree = parser.parse()
-        print("\nParsing successful!")
-        print(tree)
-    except Exception as error:
-        print("\nParsing error:", error)
+1. Lexical Analysis
+2. Syntax Analysis
+3. Abstract Syntax Tree (AST)
+4. Semantic Analysis
+5. Symbol Table Management
+6. Three-Address Code (TAC) Generation
+7. Code Optimization
+8. Backend Code Generation
+9. Stack Machine Interpretation
 
+The lexer and parser are implemented manually without using Lex, Yacc, ANTLR, Flex, or Bison.
 
-if __name__ == "__main__":
-    main()
+---
+
+## 2. Personalized Variant
+
+Roll number:
+
+```text
+233
