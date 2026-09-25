@@ -1,0 +1,97 @@
+MINILANG-233 TEST CASES
+=======================
+
+VALID TEST 1: Variable Declaration
+-----------------------------------
+mint x;
+x = 10;
+
+
+VALID TEST 2: Array Declaration
+--------------------------------
+mint numbers[5];
+numbers[0] = 10;
+numbers[1] = 20;
+
+
+VALID TEST 3: While Loop
+------------------------
+mint i;
+i = 0;
+
+mwhile (i < 5) {
+    i = i + 1;
+}
+
+
+VALID TEST 4: Switch Statement
+------------------------------
+mint choice;
+choice = 2;
+
+mswitch (choice) {
+
+    mcase 1:
+        choice = 10;
+        mbreak;
+
+    mcase 2:
+        choice = 20;
+        mbreak;
+
+    mdefault:
+        choice = 0;
+        mbreak;
+}
+
+
+VALID TEST 5: Expression
+------------------------
+mint x;
+mint y;
+
+x = 5 + 3 * 2;
+y = x + 10;
+
+
+SEMANTIC ERROR 1: Undeclared Variable
+--------------------------------------
+mint x;
+x = y;
+
+
+SEMANTIC ERROR 2: Duplicate Declaration
+----------------------------------------
+mint x;
+mint x;
+
+
+SEMANTIC ERROR 3: Array Index Out of Bounds
+--------------------------------------------
+mint numbers[5];
+numbers[10] = 20;
+
+
+SEMANTIC ERROR 4: Negative Array Index
+---------------------------------------
+mint numbers[5];
+numbers[-1] = 20;
+
+
+SEMANTIC ERROR 5: Invalid Break
+--------------------------------
+mint x;
+x = 10;
+mbreak;
+
+
+LEXICAL ERROR TEST
+------------------
+mint x;
+x = 10 @ 5;
+
+
+SYNTAX ERROR TEST
+-----------------
+mint x
+x = 10;
