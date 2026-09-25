@@ -2,16 +2,11 @@ from ast import (
     Program,
     Block,
     VariableDeclaration,
-    ArrayDeclaration,
+    StructDeclaration,
     FunctionDeclaration,
     IfStatement,
-    WhileStatement,
-    SwitchStatement,
-    CaseStatement,
-    BreakStatement,
     ReturnStatement,
     Assignment,
-    ArrayAccess,
     ExpressionStatement,
     BinaryExpression,
     UnaryExpression,
@@ -20,242 +15,335 @@ from ast import (
     BooleanLiteral,
     Identifier,
     FunctionCall,
+    StructAccess,
 )
 
 from symbol_table import SymbolTable
 
 
 class SemanticAnalyzer:
+    """
+    Semantic analyzer for MiniLang Variant 2.
+
+    Supports:
+    - Symbol table
+    - Nested scopes
+    - Static scoping
+    - Struct/record checking
+    - Function checking
+    - Type checking
+    - Return checking
+    """
+
     def __init__(self):
         self.symbol_table = SymbolTable()
         self.errors = []
 
-        self.function_names = set()
+        # Struct definitions are stored globally.
+        self.structs = {}
 
-        self.loop_depth = 0
-        self.switch_depth = 0
-        self.function_depth = 0
+        # Current function being analyzed.
+        self.current_function = None
 
-        self.current_function_return_type = None
+    # ==================================================
+    # Error handling
+    # ==================================================
 
-    def error(self, message, node=None):
-        if node is not None:
-            message = (
-                f"Semantic Error at line {node.line}, "
-                f"column {node.column}: {message}"
-            )
+    def error(self, node, message):
+        line = getattr(node, "line", 0)
+        column = getattr(node, "column", 0)
 
-        else:
-            message = f"Semantic Error: {message}"
+        self.errors.append(
+            f"Semantic error at line {line}, "
+            f"column {column}: {message}"
+        )
 
-        self.errors.append(message)
-
-    # -------------------------------------------------
+    # ==================================================
     # Main analysis
-    # -------------------------------------------------
+    # ==================================================
 
-    def analyze(self, tree):
-        if not isinstance(tree, Program):
-            self.error("Invalid AST root.")
-            return
+    def analyze(self, node):
+        if isinstance(node, Program):
+            self.analyze_program(node)
 
-        for declaration in tree.declarations:
+        return self.errors
+
+    def analyze_program(self, program):
+        # First register all top-level struct definitions.
+        for declaration in program.declarations:
+            if isinstance(declaration, StructDeclaration):
+                self.register_struct(declaration)
+
+        # Register top-level functions before analysis.
+        for declaration in program.declarations:
+            if isinstance(declaration, FunctionDeclaration):
+                self.register_function(declaration)
+
+        # Analyze declarations/statements.
+        for declaration in program.declarations:
             self.visit(declaration)
 
-    # -------------------------------------------------
-    # Dispatcher
-    # -------------------------------------------------
+    # ==================================================
+    # Visitor
+    # ==================================================
 
     def visit(self, node):
         if node is None:
-            return "void"
+            return None
 
-        method_name = (
-            "visit_" +
-            node.__class__.__name__.lower()
+        if isinstance(node, StructDeclaration):
+            return self.visit_struct_declaration(node)
+
+        if isinstance(node, VariableDeclaration):
+            return self.visit_variable_declaration(node)
+
+        if isinstance(node, FunctionDeclaration):
+            return self.visit_function_declaration(node)
+
+        if isinstance(node, Block):
+            return self.visit_block(node)
+
+        if isinstance(node, IfStatement):
+            return self.visit_if(node)
+
+        if isinstance(node, ReturnStatement):
+            return self.visit_return(node)
+
+        if isinstance(node, Assignment):
+            return self.visit_assignment(node)
+
+        if isinstance(node, ExpressionStatement):
+            return self.visit(node.expression)
+
+        if isinstance(node, BinaryExpression):
+            return self.visit_binary(node)
+
+        if isinstance(node, UnaryExpression):
+            return self.visit_unary(node)
+
+        if isinstance(node, NumberLiteral):
+            return "int"
+
+        if isinstance(node, StringLiteral):
+            return "string"
+
+        if isinstance(node, BooleanLiteral):
+            return "bool"
+
+        if isinstance(node, Identifier):
+            return self.visit_identifier(node)
+
+        if isinstance(node, StructAccess):
+            return self.visit_struct_access(node)
+
+        if isinstance(node, FunctionCall):
+            return self.visit_function_call(node)
+
+        return None
+
+    # ==================================================
+    # Structs
+    # ==================================================
+
+    def register_struct(self, node):
+        if node.name in self.structs:
+            self.error(
+                node,
+                f"Duplicate struct declaration '{node.name}'."
+            )
+            return
+
+        fields = {}
+
+        for field in node.fields:
+            if field.name in fields:
+                self.error(
+                    field,
+                    f"Duplicate field '{field.name}' "
+                    f"in struct '{node.name}'."
+                )
+                continue
+
+            field_type = field.field_type
+
+            if (
+                field_type not in
+                ("int", "bool", "string")
+                and field_type not in self.structs
+            ):
+                self.error(
+                    field,
+                    f"Unknown field type '{field_type}'."
+                )
+
+            fields[field.name] = field_type
+
+        self.structs[node.name] = fields
+
+    def visit_struct_declaration(self, node):
+        # Already processed during registration.
+        return None
+
+    # ==================================================
+    # Variables
+    # ==================================================
+
+    def visit_variable_declaration(self, node):
+        var_type = node.var_type
+
+        # Check user-defined struct type.
+        if (
+            var_type not in
+            ("int", "bool", "string")
+            and var_type not in self.structs
+        ):
+            self.error(
+                node,
+                f"Unknown type '{var_type}'."
+            )
+
+        symbol = self.symbol_table.define(
+            name=node.name,
+            symbol_type=var_type,
+            kind="variable"
         )
 
-        method = getattr(
-            self,
-            method_name,
-            self.visit_unknown
+        if symbol is None:
+            self.error(
+                node,
+                f"Duplicate declaration of '{node.name}'."
+            )
+
+    # ==================================================
+    # Functions
+    # ==================================================
+
+    def register_function(self, node):
+        parameters = [
+            parameter.param_type
+            for parameter in node.parameters
+        ]
+
+        symbol = self.symbol_table.define(
+            name=node.name,
+            symbol_type=node.return_type,
+            kind="function",
+            parameters=parameters
         )
 
-        return method(node)
+        if symbol is None:
+            self.error(
+                node,
+                f"Duplicate function declaration '{node.name}'."
+            )
 
-    def visit_unknown(self, node):
-        self.error(
-            f"Unsupported AST node: "
-            f"{node.__class__.__name__}",
-            node
+    def visit_function_declaration(self, node):
+        previous_function = self.current_function
+
+        # Function symbol may already be registered.
+        function_symbol = self.symbol_table.lookup_local(node.name)
+
+        # If this is a nested function, define it
+        # inside the current lexical scope.
+        if function_symbol is None:
+            parameters = [
+                parameter.param_type
+                for parameter in node.parameters
+            ]
+
+            function_symbol = self.symbol_table.define(
+                name=node.name,
+                symbol_type=node.return_type,
+                kind="function",
+                parameters=parameters
+            )
+
+            if function_symbol is None:
+                self.error(
+                    node,
+                    f"Duplicate function '{node.name}'."
+                )
+
+        self.current_function = node
+
+        # New lexical scope.
+        self.symbol_table.enter_scope(
+            f"function:{node.name}"
         )
 
-        return "error"
+        # Define parameters.
+        for parameter in node.parameters:
+            symbol = self.symbol_table.define(
+                name=parameter.name,
+                symbol_type=parameter.param_type,
+                kind="parameter"
+            )
 
-    # -------------------------------------------------
-    # Program / Block
-    # -------------------------------------------------
+            if symbol is None:
+                self.error(
+                    parameter,
+                    f"Duplicate parameter '{parameter.name}'."
+                )
 
-    def visit_program(self, node):
-        for declaration in node.declarations:
-            self.visit(declaration)
+        # Analyze function body.
+        self.visit(node.body)
+
+        # Exit function scope.
+        self.symbol_table.exit_scope()
+
+        self.current_function = previous_function
+
+    # ==================================================
+    # Blocks
+    # ==================================================
 
     def visit_block(self, node):
+        """
+        A block creates a nested lexical scope.
+
+        This is important for static scoping.
+        """
+
         self.symbol_table.enter_scope("block")
+
+        # Register nested functions first.
+        for statement in node.statements:
+            if isinstance(statement, FunctionDeclaration):
+                parameters = [
+                    parameter.param_type
+                    for parameter in statement.parameters
+                ]
+
+                symbol = self.symbol_table.define(
+                    name=statement.name,
+                    symbol_type=statement.return_type,
+                    kind="function",
+                    parameters=parameters
+                )
+
+                if symbol is None:
+                    self.error(
+                        statement,
+                        f"Duplicate function "
+                        f"'{statement.name}'."
+                    )
 
         for statement in node.statements:
             self.visit(statement)
 
         self.symbol_table.exit_scope()
 
-    # -------------------------------------------------
-    # Variable declaration
-    # -------------------------------------------------
-
-    def visit_variabledeclaration(self, node):
-        existing = self.symbol_table.lookup_local(
-            node.name
-        )
-
-        if existing is not None:
-            self.error(
-                f"Duplicate declaration of "
-                f"'{node.name}'.",
-                node
-            )
-            return
-
-        self.symbol_table.define(
-            node.name,
-            node.var_type,
-            kind="variable"
-        )
-
-    # -------------------------------------------------
-    # Array declaration
-    # -------------------------------------------------
-
-    def visit_arraydeclaration(self, node):
-        existing = self.symbol_table.lookup_local(
-            node.name
-        )
-
-        if existing is not None:
-            self.error(
-                f"Duplicate declaration of "
-                f"'{node.name}'.",
-                node
-            )
-            return
-
-        if node.size <= 0:
-            self.error(
-                f"Array '{node.name}' must have "
-                f"a positive size.",
-                node
-            )
-            return
-
-        self.symbol_table.define(
-            node.name,
-            node.element_type,
-            kind="array",
-            size=node.size
-        )
-
-    # -------------------------------------------------
-    # Function
-    # -------------------------------------------------
-
-    def visit_functiondeclaration(self, node):
-        existing = self.symbol_table.lookup_local(
-            node.name
-        )
-
-        if existing is not None:
-            self.error(
-                f"Duplicate function "
-                f"'{node.name}'.",
-                node
-            )
-            return
-
-        if node.name in self.function_names:
-            self.error(
-                f"Duplicate function "
-                f"'{node.name}'.",
-                node
-            )
-            return
-
-        self.function_names.add(node.name)
-
-        self.symbol_table.define(
-            node.name,
-            node.return_type,
-            kind="function",
-            parameters=node.parameters
-        )
-
-        self.function_depth += 1
-
-        old_return_type = (
-            self.current_function_return_type
-        )
-
-        self.current_function_return_type = (
-            node.return_type
-        )
-
-        self.symbol_table.enter_scope(
-            f"function:{node.name}"
-        )
-
-        for parameter in node.parameters:
-            if self.symbol_table.lookup_local(
-                parameter.name
-            ):
-                self.error(
-                    f"Duplicate parameter "
-                    f"'{parameter.name}'.",
-                    parameter
-                )
-            else:
-                self.symbol_table.define(
-                    parameter.name,
-                    parameter.param_type,
-                    kind="parameter"
-                )
-
-        for statement in node.body.statements:
-            self.visit(statement)
-
-        self.symbol_table.exit_scope()
-
-        self.current_function_return_type = (
-            old_return_type
-        )
-
-        self.function_depth -= 1
-
-    # -------------------------------------------------
+    # ==================================================
     # If
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_ifstatement(self, node):
-        condition_type = self.visit(
-            node.condition
-        )
+    def visit_if(self, node):
+        condition_type = self.visit(node.condition)
 
-        if condition_type not in (
-            "bool",
-            "int",
-            "error"
-        ):
+        if condition_type != "bool":
             self.error(
-                "If condition must be "
-                "boolean or integer.",
-                node
+                node.condition,
+                "If condition must be of type bool."
             )
 
         self.visit(node.then_branch)
@@ -263,459 +351,273 @@ class SemanticAnalyzer:
         if node.else_branch is not None:
             self.visit(node.else_branch)
 
-    # -------------------------------------------------
-    # While
-    # -------------------------------------------------
-
-    def visit_whilestatement(self, node):
-        condition_type = self.visit(
-            node.condition
-        )
-
-        if condition_type not in (
-            "bool",
-            "int",
-            "error"
-        ):
-            self.error(
-                "While condition must be "
-                "boolean or integer.",
-                node
-            )
-
-        self.loop_depth += 1
-
-        self.visit(node.body)
-
-        self.loop_depth -= 1
-
-    # -------------------------------------------------
-    # Switch
-    # -------------------------------------------------
-
-    def visit_switchstatement(self, node):
-        expression_type = self.visit(
-            node.expression
-        )
-
-        if expression_type not in (
-            "int",
-            "bool",
-            "error"
-        ):
-            self.error(
-                "Switch expression must be "
-                "integer or boolean.",
-                node
-            )
-
-        case_values = set()
-
-        self.switch_depth += 1
-
-        for case in node.cases:
-            if case.value in case_values:
-                self.error(
-                    f"Duplicate switch case "
-                    f"value '{case.value}'.",
-                    case
-                )
-            else:
-                case_values.add(case.value)
-
-            self.visit(casesafe(case))
-
-        if node.default_case is not None:
-            self.visit(node.default_case)
-
-        self.switch_depth -= 1
-
-    # -------------------------------------------------
-    # Case helper
-    # -------------------------------------------------
-
-    def visit_casestatement(self, node):
-        for statement in node.statements:
-            self.visit(statement)
-
-    # -------------------------------------------------
-    # Break
-    # -------------------------------------------------
-
-    def visit_breakstatement(self, node):
-        if (
-            self.loop_depth == 0
-            and self.switch_depth == 0
-        ):
-            self.error(
-                "'mbreak' can only be used "
-                "inside a while loop or switch.",
-                node
-            )
-
-    # -------------------------------------------------
+    # ==================================================
     # Return
-    # -------------------------------------------------
+    # ==================================================
 
-    def visit_returnstatement(self, node):
-        if self.function_depth == 0:
+    def visit_return(self, node):
+        if self.current_function is None:
             self.error(
-                "'mreturn' used outside "
-                "a function.",
-                node
+                node,
+                "Return statement outside a function."
             )
             return
 
-        expression_type = "void"
+        expected_type = self.current_function.return_type
 
-        if node.expression is not None:
-            expression_type = self.visit(
-                node.expression
-            )
-
-        if (
-            expression_type != "error"
-            and self.current_function_return_type
-            != expression_type
-        ):
+        if node.expression is None:
             self.error(
-                f"Return type mismatch. "
-                f"Expected "
-                f"'{self.current_function_return_type}', "
-                f"got '{expression_type}'.",
-                node
+                node,
+                f"Function '{self.current_function.name}' "
+                f"must return {expected_type}."
+            )
+            return
+
+        actual_type = self.visit(node.expression)
+
+        if actual_type != expected_type:
+            self.error(
+                node,
+                f"Return type mismatch: expected "
+                f"{expected_type}, got {actual_type}."
             )
 
-    # -------------------------------------------------
+    # ==================================================
     # Assignment
-    # -------------------------------------------------
+    # ==================================================
 
     def visit_assignment(self, node):
         target_type = self.visit(node.target)
-
-        expression_type = self.visit(
-            node.expression
-        )
+        value_type = self.visit(node.expression)
 
         if (
-            target_type != "error"
-            and expression_type != "error"
-            and target_type != expression_type
+            target_type is not None
+            and value_type is not None
+            and target_type != value_type
         ):
             self.error(
-                f"Type mismatch in assignment. "
-                f"Cannot assign "
-                f"'{expression_type}' to "
-                f"'{target_type}'.",
-                node
+                node,
+                f"Type mismatch in assignment: "
+                f"cannot assign {value_type} to {target_type}."
             )
 
-    # -------------------------------------------------
-    # Array access
-    # -------------------------------------------------
-
-    def visit_arrayaccess(self, node):
-        symbol = self.symbol_table.lookup(
-            node.name
-        )
-
-        if symbol is None:
-            self.error(
-                f"Undeclared identifier "
-                f"'{node.name}'.",
-                node
-            )
-            self.visit(node.index)
-            return "error"
-
-        if symbol.kind != "array":
-            self.error(
-                f"'{node.name}' is not an array.",
-                node
-            )
-            self.visit(node.index)
-            return "error"
-
-        index_type = self.visit(node.index)
-
-        if index_type not in (
-            "int",
-            "error"
-        ):
-            self.error(
-                f"Array index of '{node.name}' "
-                f"must be an integer.",
-                node
-            )
-
-        # Compile-time bounds checking
-        if isinstance(node.index, NumberLiteral):
-            index = node.index.value
-
-            if index < 0 or index >= symbol.size:
-                self.error(
-                    f"Array index {index} is out of "
-                    f"bounds for array "
-                    f"'{node.name}' of size "
-                    f"{symbol.size}.",
-                    node
-                )
-
-        return symbol.symbol_type
-
-    # -------------------------------------------------
-    # Expression statement
-    # -------------------------------------------------
-
-    def visit_expressionstatement(self, node):
-        return self.visit(node.expression)
-
-    # -------------------------------------------------
+    # ==================================================
     # Identifier
-    # -------------------------------------------------
+    # ==================================================
 
     def visit_identifier(self, node):
-        symbol = self.symbol_table.lookup(
-            node.name
-        )
+        symbol = self.symbol_table.lookup(node.name)
 
         if symbol is None:
             self.error(
-                f"Undeclared identifier "
-                f"'{node.name}'.",
-                node
+                node,
+                f"Undeclared identifier '{node.name}'."
             )
-            return "error"
-
-        if symbol.kind == "array":
-            self.error(
-                f"Array '{node.name}' must be "
-                f"accessed using an index.",
-                node
-            )
-            return "error"
-
-        if symbol.kind == "function":
-            self.error(
-                f"Function '{node.name}' "
-                f"requires a function call.",
-                node
-            )
-            return "error"
+            return None
 
         return symbol.symbol_type
 
-    # -------------------------------------------------
-    # Number
-    # -------------------------------------------------
+    # ==================================================
+    # Struct access
+    # ==================================================
 
-    def visit_numberliteral(self, node):
-        return "int"
-
-    # -------------------------------------------------
-    # String
-    # -------------------------------------------------
-
-    def visit_stringliteral(self, node):
-        return "string"
-
-    # -------------------------------------------------
-    # Boolean
-    # -------------------------------------------------
-
-    def visit_booleanliteral(self, node):
-        return "bool"
-
-    # -------------------------------------------------
-    # Binary expression
-    # -------------------------------------------------
-
-    def visit_binaryexpression(self, node):
-        left_type = self.visit(node.left)
-        right_type = self.visit(node.right)
-
-        if (
-            left_type == "error"
-            or right_type == "error"
-        ):
-            return "error"
-
-        arithmetic = {
-            "+",
-            "-",
-            "*",
-            "/",
-            "%",
-        }
-
-        comparison = {
-            "<",
-            ">",
-            "<=",
-            ">=",
-        }
-
-        equality = {
-            "==",
-            "!=",
-        }
-
-        if node.operator in arithmetic:
-            if (
-                left_type != "int"
-                or right_type != "int"
-            ):
-                self.error(
-                    f"Arithmetic operator "
-                    f"'{node.operator}' requires "
-                    f"integer operands.",
-                    node
-                )
-                return "error"
-
-            return "int"
-
-        if node.operator in comparison:
-            if (
-                left_type != "int"
-                or right_type != "int"
-            ):
-                self.error(
-                    f"Comparison operator "
-                    f"'{node.operator}' requires "
-                    f"integer operands.",
-                    node
-                )
-                return "error"
-
-            return "bool"
-
-        if node.operator in equality:
-            if left_type != right_type:
-                self.error(
-                    f"Cannot compare "
-                    f"'{left_type}' and "
-                    f"'{right_type}'.",
-                    node
-                )
-                return "error"
-
-            return "bool"
-
-        self.error(
-            f"Unknown binary operator "
-            f"'{node.operator}'.",
-            node
-        )
-
-        return "error"
-
-    # -------------------------------------------------
-    # Unary expression
-    # -------------------------------------------------
-
-    def visit_unaryexpression(self, node):
-        operand_type = self.visit(
-            node.operand
-        )
-
-        if operand_type == "error":
-            return "error"
-
-        if node.operator == "-":
-            if operand_type != "int":
-                self.error(
-                    "Unary '-' requires "
-                    "an integer.",
-                    node
-                )
-                return "error"
-
-            return "int"
-
-        if node.operator == "!":
-            if operand_type not in (
-                "bool",
-                "int"
-            ):
-                self.error(
-                    "Unary '!' requires "
-                    "boolean or integer.",
-                    node
-                )
-                return "error"
-
-            return "bool"
-
-        return "error"
-
-    # -------------------------------------------------
-    # Function call
-    # -------------------------------------------------
-
-    def visit_functioncall(self, node):
+    def visit_struct_access(self, node):
         symbol = self.symbol_table.lookup(
-            node.name
+            node.object_name
         )
 
         if symbol is None:
             self.error(
-                f"Undefined function "
-                f"'{node.name}'.",
-                node
+                node,
+                f"Undeclared identifier "
+                f"'{node.object_name}'."
             )
+            return None
 
-            for argument in node.arguments:
-                self.visit(argument)
+        object_type = symbol.symbol_type
 
-            return "error"
+        if object_type not in self.structs:
+            self.error(
+                node,
+                f"Invalid member access: "
+                f"'{node.object_name}' is not a struct."
+            )
+            return None
+
+        fields = self.structs[object_type]
+
+        if node.field_name not in fields:
+            self.error(
+                node,
+                f"Struct '{object_type}' has no field "
+                f"'{node.field_name}'."
+            )
+            return None
+
+        return fields[node.field_name]
+
+    # ==================================================
+    # Function call
+    # ==================================================
+
+    def visit_function_call(self, node):
+        symbol = self.symbol_table.lookup(node.name)
+
+        if symbol is None:
+            self.error(
+                node,
+                f"Undeclared function '{node.name}'."
+            )
+            return None
 
         if symbol.kind != "function":
             self.error(
-                f"'{node.name}' is not a function.",
-                node
+                node,
+                f"'{node.name}' is not a function."
             )
+            return None
 
-            return "error"
+        expected = len(symbol.parameters)
+        actual = len(node.arguments)
 
-        if len(node.arguments) != len(
-            symbol.parameters
-        ):
+        if expected != actual:
             self.error(
-                f"Function '{node.name}' expects "
-                f"{len(symbol.parameters)} "
-                f"arguments but got "
-                f"{len(node.arguments)}.",
-                node
+                node,
+                f"Invalid function call to '{node.name}': "
+                f"expected {expected} arguments, "
+                f"got {actual}."
             )
 
-        for index, argument in enumerate(
-            node.arguments
-        ):
-            argument_type = self.visit(
-                argument
-            )
+        # Check argument types.
+        for index, argument in enumerate(node.arguments):
+            actual_type = self.visit(argument)
 
             if index < len(symbol.parameters):
-                expected_type = (
-                    symbol.parameters[index].param_type
-                )
+                expected_type = symbol.parameters[index]
 
-                if (
-                    argument_type != "error"
-                    and argument_type != expected_type
-                ):
+                if actual_type != expected_type:
                     self.error(
-                        f"Argument {index + 1} "
-                        f"of function "
-                        f"'{node.name}' should be "
-                        f"'{expected_type}', "
-                        f"got '{argument_type}'.",
-                        node
+                        argument,
+                        f"Argument {index + 1} of "
+                        f"'{node.name}' must be "
+                        f"{expected_type}, got "
+                        f"{actual_type}."
                     )
 
         return symbol.symbol_type
 
+    # ==================================================
+    # Binary expression
+    # ==================================================
 
-def casesafe(case):
-    return case
+    def visit_binary(self, node):
+        left_type = self.visit(node.left)
+        right_type = self.visit(node.right)
+
+        operator = node.operator
+
+        # Arithmetic operators
+        if operator in {"+", "-", "*", "/", "%"}:
+
+            if left_type != "int" or right_type != "int":
+                self.error(
+                    node,
+                    f"Operator '{operator}' requires "
+                    f"integer operands."
+                )
+                return None
+
+            return "int"
+
+        # Comparison operators
+        if operator in {"<", ">", "<=", ">="}:
+
+            if left_type != "int" or right_type != "int":
+                self.error(
+                    node,
+                    f"Operator '{operator}' requires "
+                    f"integer operands."
+                )
+
+            return "bool"
+
+        # Equality
+        if operator in {"==", "!="}:
+
+            if (
+                left_type is not None
+                and right_type is not None
+                and left_type != right_type
+            ):
+                self.error(
+                    node,
+                    f"Cannot compare {left_type} "
+                    f"with {right_type}."
+                )
+
+            return "bool"
+
+        # Logical operators
+        if operator in {"&&", "||"}:
+
+            if left_type != "bool" or right_type != "bool":
+                self.error(
+                    node,
+                    f"Operator '{operator}' requires "
+                    f"boolean operands."
+                )
+
+            return "bool"
+
+        self.error(
+            node,
+            f"Unknown binary operator '{operator}'."
+        )
+
+        return None
+
+    # ==================================================
+    # Unary expression
+    # ==================================================
+
+    def visit_unary(self, node):
+        operand_type = self.visit(node.operand)
+
+        if node.operator == "-":
+
+            if operand_type != "int":
+                self.error(
+                    node,
+                    "Unary '-' requires an integer."
+                )
+
+            return "int"
+
+        if node.operator == "!":
+
+            if operand_type != "bool":
+                self.error(
+                    node,
+                    "Unary '!' requires a boolean."
+                )
+
+            return "bool"
+
+        return None
+
+    # ==================================================
+    # Utility
+    # ==================================================
+
+    def has_errors(self):
+        return len(self.errors) > 0
+
+    def print_errors(self):
+        if not self.errors:
+            print("No semantic errors.")
+            return
+
+        print("\nSemantic Errors:")
+
+        for error in self.errors:
+            print("-", error)
