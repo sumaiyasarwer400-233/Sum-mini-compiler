@@ -1,499 +1,170 @@
-class ReturnSignal(Exception):
-    def __init__(self, value=None):
-        self.value = value
-
-
-class BreakSignal(Exception):
-    pass
-
-
-class ContinueSignal(Exception):
-    pass
-
-
-# ---------------- ENVIRONMENT ----------------
-
-class Environment:
-
-    def __init__(self, parent=None):
-        self.parent = parent
-        self.values = {}
-
-    def define(self, name, value):
-        self.values[name] = value
-
-    def get(self, name):
-
-        if name in self.values:
-            return self.values[name]
-
-        if self.parent:
-            return self.parent.get(name)
-
-        raise RuntimeError(
-            f"Undefined variable: {name}"
-        )
-
-    def set(self, name, value):
-
-        if name in self.values:
-            self.values[name] = value
-            return
-
-        if self.parent:
-            self.parent.set(name, value)
-            return
-
-        raise RuntimeError(
-            f"Undefined variable: {name}"
-        )
-
-
-# ---------------- FUNCTION ----------------
-
-class FunctionValue:
-
-    def __init__(
-        self,
-        declaration,
-        closure,
-        interpreter
-    ):
-        self.declaration = declaration
-        self.closure = closure
-        self.interpreter = interpreter
-
-    def call(self, arguments):
-
-        environment = Environment(
-            self.closure
-        )
-
-        params = self.declaration.params
-
-        for param, value in zip(
-            params,
-            arguments
-        ):
-            environment.define(
-                param.name,
-                value
-            )
-
-        try:
-
-            self.interpreter.execute_block(
-                self.declaration.body,
-                environment
-            )
-
-        except ReturnSignal as signal:
-
-            return signal.value
-
-        return None
-
-
-# ---------------- INTERPRETER ----------------
-
 class Interpreter:
-
     def __init__(self):
+        self.stack = []
+        self.memory = {}
+        self.labels = {}
+        self.pc = 0
 
-        self.global_environment = (
-            Environment()
-        )
+    def prepare_labels(self, code):
+        self.labels = {}
 
-        self.environment = (
-            self.global_environment
-        )
+        for index, instruction in enumerate(code):
+            parts = instruction.split()
 
-        self.functions = {}
+            if parts and parts[0] == "LABEL":
+                self.labels[parts[1]] = index
 
-    # ---------------- RUN PROGRAM ----------------
-
-    def run(self, program):
-
-        # Register top-level functions
-        for declaration in program.declarations:
-
-            if (
-                declaration.__class__.__name__
-                == "FunctionDecl"
-            ):
-
-                function = FunctionValue(
-                    declaration,
-                    self.global_environment,
-                    self
-                )
-
-                self.functions[
-                    declaration.name
-                ] = function
-
-                self.global_environment.define(
-                    declaration.name,
-                    function
-                )
-
-        if "main" not in self.functions:
-
-            raise RuntimeError(
-                "main function not found"
-            )
-
-        return self.functions["main"].call([])
-
-    # ---------------- BLOCK ----------------
-
-    def execute_block(
-        self,
-        block,
-        environment
-    ):
-
-        previous = self.environment
-
-        self.environment = environment
+    def get_value(self, value):
+        if value in self.memory:
+            return self.memory[value]
 
         try:
+            return int(value)
+        except ValueError:
+            return 0
 
-            for statement in block.statements:
-                self.execute(statement)
+    def run(self, code):
+        self.stack = []
+        self.memory = {}
+        self.pc = 0
 
-        finally:
+        self.prepare_labels(code)
 
-            self.environment = previous
+        while self.pc < len(code):
+            instruction = code[self.pc]
+            parts = instruction.split()
 
-    # ---------------- STATEMENTS ----------------
+            if not parts:
+                self.pc += 1
+                continue
 
-    def execute(self, node):
+            operation = parts[0]
 
-        name = node.__class__.__name__
+            if operation == "PUSH":
+                value = self.get_value(parts[1])
+                self.stack.append(value)
 
-        # Variable declaration
-        if name == "VarDecl":
+            elif operation == "STORE":
+                if self.stack:
+                    self.memory[parts[1]] = self.stack.pop()
 
-            value = None
+            elif operation == "ADD":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(left + right)
 
-            if node.initializer is not None:
+            elif operation == "SUB":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(left - right)
 
-                value = self.evaluate(
-                    node.initializer
-                )
+            elif operation == "MUL":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(left * right)
 
-            self.environment.define(
-                node.name,
-                value
-            )
+            elif operation == "DIV":
+                right = self.stack.pop()
+                left = self.stack.pop()
 
-        # Assignment
-        elif name == "Assign":
-
-            value = self.evaluate(
-                node.value
-            )
-
-            self.assign(
-                node.target,
-                value
-            )
-
-        # Print
-        elif name == "PrintStmt":
-
-            value = self.evaluate(
-                node.value
-            )
-
-            print(value)
-
-        # Expression statement
-        elif name == "ExprStmt":
-
-            self.evaluate(
-                node.expression
-            )
-
-        # If statement
-        elif name == "IfStmt":
-
-            condition = self.evaluate(
-                node.condition
-            )
-
-            if condition:
-
-                self.execute_block(
-                    node.then_branch,
-                    Environment(
-                        self.environment
-                    )
-                )
-
-            elif node.else_branch:
-
-                self.execute_block(
-                    node.else_branch,
-                    Environment(
-                        self.environment
-                    )
-                )
-
-        # While statement
-        elif name == "WhileStmt":
-
-            while self.evaluate(
-                node.condition
-            ):
-
-                try:
-
-                    self.execute_block(
-                        node.body,
-                        Environment(
-                            self.environment
-                        )
+                if right == 0:
+                    raise RuntimeError(
+                        "Division by zero"
                     )
 
-                except BreakSignal:
-                    break
+                self.stack.append(left // right)
 
-                except ContinueSignal:
+            elif operation == "MOD":
+                right = self.stack.pop()
+                left = self.stack.pop()
+
+                if right == 0:
+                    raise RuntimeError(
+                        "Modulo by zero"
+                    )
+
+                self.stack.append(left % right)
+
+            elif operation == "CMP_EQ":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left == right else 0
+                )
+
+            elif operation == "CMP_NE":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left != right else 0
+                )
+
+            elif operation == "CMP_LT":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left < right else 0
+                )
+
+            elif operation == "CMP_GT":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left > right else 0
+                )
+
+            elif operation == "CMP_LE":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left <= right else 0
+                )
+
+            elif operation == "CMP_GE":
+                right = self.stack.pop()
+                left = self.stack.pop()
+                self.stack.append(
+                    1 if left >= right else 0
+                )
+
+            elif operation == "JUMP":
+                self.pc = self.labels[parts[1]]
+                continue
+
+            elif operation == "JUMP_IF_FALSE":
+                value = self.stack.pop()
+
+                if value == 0:
+                    self.pc = self.labels[parts[1]]
                     continue
 
-        # Return
-        elif name == "ReturnStmt":
+            elif operation == "RETURN":
+                return self.get_value(parts[1])
 
-            value = None
+            elif operation == "LABEL":
+                pass
 
-            if node.value is not None:
+            elif operation == "FUNCTION":
+                pass
 
-                value = self.evaluate(
-                    node.value
-                )
+            elif operation == "END_FUNCTION":
+                pass
 
-            raise ReturnSignal(value)
+            elif operation == "PARAM":
+                pass
 
-        # Break
-        elif name == "BreakStmt":
+            elif operation == "CALL":
+                pass
 
-            raise BreakSignal()
+            elif operation == "BREAK":
+                pass
 
-        # Continue
-        elif name == "ContinueStmt":
+            elif operation == "CONTINUE":
+                pass
 
-            raise ContinueSignal()
+            self.pc += 1
 
-        # Nested function
-        elif name == "FunctionDecl":
-
-            function = FunctionValue(
-                node,
-                self.environment,
-                self
-            )
-
-            # This closure keeps the surrounding
-            # environment for static scoping.
-            self.environment.define(
-                node.name,
-                function
-            )
-
-    # ---------------- EXPRESSIONS ----------------
-
-    def evaluate(self, node):
-
-        name = node.__class__.__name__
-
-        # Literal
-        if name == "Literal":
-
-            return node.value
-
-        # Variable
-        if name == "Variable":
-
-            return self.environment.get(
-                node.name
-            )
-
-        # Binary
-        if name == "Binary":
-
-            left = self.evaluate(
-                node.left
-            )
-
-            right = self.evaluate(
-                node.right
-            )
-
-            return self.binary(
-                left,
-                node.operator,
-                right
-            )
-
-        # Unary
-        if name == "Unary":
-
-            value = self.evaluate(
-                node.operand
-            )
-
-            if node.operator == "-":
-                return -value
-
-            if node.operator == "!":
-                return not value
-
-        # Function call
-        if name == "Call":
-
-            return self.call_function(
-                node
-            )
-
-        # Struct member
-        if name == "Member":
-
-            obj = self.evaluate(
-                node.object
-            )
-
-            if not isinstance(obj, dict):
-
-                raise RuntimeError(
-                    "Object is not a struct"
-                )
-
-            if node.name not in obj:
-
-                raise RuntimeError(
-                    f"Unknown field: {node.name}"
-                )
-
-            return obj[node.name]
+        if self.stack:
+            return self.stack[-1]
 
         return None
-
-    # ---------------- OPERATORS ----------------
-
-    def binary(
-        self,
-        left,
-        operator,
-        right
-    ):
-
-        if operator == "+":
-            return left + right
-
-        if operator == "-":
-            return left - right
-
-        if operator == "*":
-            return left * right
-
-        if operator == "/":
-            return left / right
-
-        if operator == "%":
-            return left % right
-
-        if operator == "==":
-            return left == right
-
-        if operator == "!=":
-            return left != right
-
-        if operator == "<":
-            return left < right
-
-        if operator == ">":
-            return left > right
-
-        if operator == "<=":
-            return left <= right
-
-        if operator == ">=":
-            return left >= right
-
-        if operator == "&&":
-            return left and right
-
-        if operator == "||":
-            return left or right
-
-        raise RuntimeError(
-            f"Unknown operator: {operator}"
-        )
-
-    # ---------------- FUNCTION CALL ----------------
-
-    def call_function(self, node):
-
-        function = self.evaluate(
-            node.callee
-        )
-
-        arguments = []
-
-        for argument in node.arguments:
-
-            arguments.append(
-                self.evaluate(argument)
-            )
-
-        if not isinstance(
-            function,
-            FunctionValue
-        ):
-
-            raise RuntimeError(
-                "Not a function"
-            )
-
-        return function.call(
-            arguments
-        )
-
-    # ---------------- ASSIGNMENT ----------------
-
-    def assign(
-        self,
-        target,
-        value
-    ):
-
-        name = target.__class__.__name__
-
-        if name == "Variable":
-
-            self.environment.set(
-                target.name,
-                value
-            )
-
-        elif name == "Member":
-
-            obj = self.evaluate(
-                target.object
-            )
-
-            if not isinstance(obj, dict):
-
-                raise RuntimeError(
-                    "Object is not a struct"
-                )
-
-            obj[target.name] = value
-
-        else:
-
-            raise RuntimeError(
-                "Invalid assignment target"
-            )
