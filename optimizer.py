@@ -1,186 +1,99 @@
 class Optimizer:
+    def optimize(self, instructions):
+        result = self.constant_folding(instructions)
+        result = self.common_subexpression_elimination(result)
+        return result
 
-    # ---------------- CONSTANT FOLDING ----------------
-
-    def constant_folding(self, code):
-
+    def constant_folding(self, instructions):
         optimized = []
 
-        for instruction in code:
+        for instruction in instructions:
+            parts = instruction.split()
 
-            if (
-                len(instruction) == 5
-                and instruction[0] == "BIN"
-            ):
+            if len(parts) == 5 and parts[1] == "=":
+                left = parts[0]
+                value1 = parts[2]
+                operator = parts[3]
+                value2 = parts[4]
 
-                temp = instruction[1]
-                operator = instruction[2]
-                left = instruction[3]
-                right = instruction[4]
+                if self.is_number(value1) and self.is_number(value2):
+                    a = int(value1)
+                    b = int(value2)
 
-                try:
-
-                    left_value = self.to_value(left)
-                    right_value = self.to_value(right)
-
-                    if (
-                        left_value is not None
-                        and right_value is not None
-                    ):
-
-                        result = self.calculate(
-                            left_value,
-                            operator,
-                            right_value
-                        )
+                    try:
+                        if operator == "+":
+                            value = a + b
+                        elif operator == "-":
+                            value = a - b
+                        elif operator == "*":
+                            value = a * b
+                        elif operator == "/":
+                            if b == 0:
+                                optimized.append(instruction)
+                                continue
+                            value = a // b
+                        elif operator == "%":
+                            if b == 0:
+                                optimized.append(instruction)
+                                continue
+                            value = a % b
+                        else:
+                            optimized.append(instruction)
+                            continue
 
                         optimized.append(
-                            ("MOV", temp, str(result))
+                            f"{left} = {value}"
                         )
-
                         continue
 
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
             optimized.append(instruction)
 
         return optimized
-
-    # ---------------- COMMON SUBEXPRESSION ----------------
 
     def common_subexpression_elimination(
         self,
-        code
+        instructions
     ):
-
         optimized = []
         expressions = {}
 
-        for instruction in code:
+        for instruction in instructions:
+            parts = instruction.split()
 
-            if (
-                len(instruction) == 5
-                and instruction[0] == "BIN"
-            ):
+            if len(parts) == 5 and parts[1] == "=":
+                result_name = parts[0]
+                left = parts[2]
+                operator = parts[3]
+                right = parts[4]
 
-                temp = instruction[1]
-                operator = instruction[2]
-                left = instruction[3]
-                right = instruction[4]
-
-                key = (
-                    operator,
+                expression = (
                     left,
+                    operator,
                     right
                 )
 
-                if key in expressions:
-
-                    old_temp = expressions[key]
+                if expression in expressions:
+                    previous_result = expressions[expression]
 
                     optimized.append(
-                        (
-                            "MOV",
-                            temp,
-                            old_temp
-                        )
+                        f"{result_name} = "
+                        f"{previous_result}"
                     )
-
                     continue
 
-                expressions[key] = temp
+                expressions[expression] = result_name
 
             optimized.append(instruction)
 
         return optimized
 
-    # ---------------- VALUE CONVERSION ----------------
-
-    def to_value(self, value):
-
-        if isinstance(value, str):
-
-            if (
-                value.startswith("'")
-                and value.endswith("'")
-            ):
-                return value[1:-1]
-
-            try:
-
-                if "." in value:
-                    return float(value)
-
-                return int(value)
-
-            except ValueError:
-                return None
-
-        if isinstance(value, (int, float)):
-            return value
-
-        return None
-
-    # ---------------- CALCULATION ----------------
-
-    def calculate(
-        self,
-        left,
-        operator,
-        right
-    ):
-
-        if operator == "+":
-            return left + right
-
-        if operator == "-":
-            return left - right
-
-        if operator == "*":
-            return left * right
-
-        if operator == "/":
-            return left / right
-
-        if operator == "%":
-            return left % right
-
-        if operator == "==":
-            return left == right
-
-        if operator == "!=":
-            return left != right
-
-        if operator == "<":
-            return left < right
-
-        if operator == ">":
-            return left > right
-
-        if operator == "<=":
-            return left <= right
-
-        if operator == ">=":
-            return left >= right
-
-        return None
-
-    # ---------------- OPTIMIZE ----------------
-
-    def optimize(self, code):
-
-        code = self.constant_folding(code)
-
-        code = self.common_subexpression_elimination(
-            code
-        )
-
-        return code
-
-
-def optimize_tac(code):
-
-    optimizer = Optimizer()
-
-    return optimizer.optimize(code)
+    @staticmethod
+    def is_number(value):
+        try:
+            int(value)
+            return True
+        except ValueError:
+            return False
